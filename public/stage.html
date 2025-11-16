@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrimeBible Stage</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    html, body { margin: 0; padding: 0; width: 1920px; height: 1080px; background: #000; color: #fff; }
+    .wrap { display: grid; grid-template-rows: auto 1fr; height: 100%; padding: 20px; gap: 16px; }
+    .top { display: flex; justify-content: space-between; align-items: center; }
+    .ref { font-size: 28px; font-weight: 700; }
+    .tr { font-size: 16px; opacity: 0.7; margin-left: 12px; }
+    .clock { font-size: 28px; font-weight: 700; opacity: 0.85; font-variant-numeric: tabular-nums; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .panel { border: 1px solid #333; border-radius: 12px; padding: 18px; background: #0b0b0b; }
+    .label { font-size: 14px; opacity: 0.7; margin-bottom: 8px; }
+    .current { font-size: 44px; line-height: 1.3; white-space: pre-wrap; }
+    .next { font-size: 36px; line-height: 1.3; opacity: 0.75; white-space: pre-wrap; }
+    .muted { color: #9aa0a6; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <span class="ref" id="refText"></span>
+        <span class="tr" id="trText"></span>
+      </div>
+      <div class="clock" id="clock"></div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <div class="label muted">Current</div>
+        <div id="current" class="current"></div>
+      </div>
+      <div class="panel">
+        <div class="label muted">Next</div>
+        <div id="next" class="next"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="stage.js"></script>
+</body>
+</html>

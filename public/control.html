@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PrimeBible Control</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    body { overflow: hidden; }
+    
+    .control-layout {
+      display: grid;
+      grid-template-columns: 420px 1fr 360px;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      gap: 0;
+    }
+
+    .control-header {
+      grid-column: 1 / -1;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: var(--space-md) var(--space-lg);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .control-sidebar {
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .control-main {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .control-panel {
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .section {
+      padding: var(--space-lg);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .section-title {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-secondary);
+      margin-bottom: var(--space-md);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .quick-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-sm);
+    }
+
+    .preview-box {
+      background: var(--bg-primary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: var(--space-lg);
+      min-height: 200px;
+      font-size: 0.875rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      font-family: var(--font-sans);
+      color: var(--text-secondary);
+    }
+
+    .preview-box.has-content {
+      color: var(--text-primary);
+    }
+
+    .history-item, .favorite-item, .plan-item {
+      padding: var(--space-md);
+      background: var(--bg-primary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-sm);
+      cursor: pointer;
+      transition: all var(--transition-base);
+    }
+
+    .history-item:hover, .favorite-item:hover, .plan-item:hover {
+      border-color: var(--border-medium);
+      background: var(--bg-tertiary);
+    }
+
+    .item-title {
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: var(--space-xs);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .item-subtitle {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+
+    .item-preview {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      margin-top: var(--space-xs);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-md);
+    }
+
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-xs);
+      padding: var(--space-xs) var(--space-md);
+      background: rgba(248, 113, 113, 0.15);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--danger);
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--danger);
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .kbd {
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      background: var(--bg-primary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="control-layout">
+    <!-- Header -->
+    <div class="control-header">
+      <div class="flex items-center gap-md">
+        <h1 style="font-size: 1.25rem; font-weight: 700;">PrimeBible Control</h1>
+        <div class="status-dot" id="wsStatus" data-tooltip="WebSocket status"></div>
+        <div id="obsStatus"></div>
+      </div>
+      <div class="flex items-center gap-sm">
+        <span class="text-muted" style="font-size: 0.75rem;">v2.0</span>
+      </div>
+    </div>
+
+    <!-- Left Sidebar: Input & Actions -->
+    <div class="control-sidebar">
+      <div class="section">
+        <div class="section-title">Verse Lookup</div>
+        <div class="flex-col gap-md">
+          <div>
+            <label class="label">Reference</label>
+            <input type="text" id="refInput" class="input" placeholder="John 3:16-17" autofocus>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+              Try: Genesis 1:1, Psalm 23, John 3:16-18
+            </div>
+          </div>
+          
+          <div class="grid-2">
+            <div>
+              <label class="label">Translation</label>
+              <select id="translationSelect" class="select">
+                <option value="kjv">KJV</option>
+                <option value="niv">NIV</option>
+                <option value="esv">ESV</option>
+                <option value="nlt">NLT</option>
+                <option value="nasb">NASB</option>
+                <option value="web">WEB</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Theme</label>
+              <select id="themeSelect" class="select">
+                <option value="glass-lower">Glass Lower</option>
+                <option value="minimal-center">Minimal Center</option>
+                <option value="full-screen">Full Screen</option>
+                <option value="split-side">Split Side</option>
+                <option value="corner-card">Corner Card</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="label">Animation</label>
+            <select id="animationSelect" class="select">
+              <option value="fade">Fade</option>
+              <option value="slide-up">Slide Up</option>
+              <option value="slide-down">Slide Down</option>
+              <option value="zoom">Zoom</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+
+          <button id="fetchBtn" class="btn btn-primary btn-lg w-full">
+            <span>Fetch Verse</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Quick Actions</div>
+        <div class="quick-actions">
+          <button id="goLiveBtn" class="btn btn-success" disabled>
+            <span>🎯 Go Live</span>
+          </button>
+          <button id="hideBtn" class="btn btn-ghost">
+            <span>🙈 Hide</span>
+          </button>
+          <button id="prevSlideBtn" class="btn btn-ghost">
+            <span>⬅️ Prev</span>
+          </button>
+          <button id="nextSlideBtn" class="btn btn-ghost">
+            <span>➡️ Next</span>
+          </button>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: var(--space-sm);">
+          Shortcuts: <span class="kbd">Enter</span> Go Live • <span class="kbd">Esc</span> Hide • <span class="kbd">←→</span> Navigate
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <span>Service Plan</span>
+          <button id="clearPlanBtn" class="btn btn-sm btn-ghost">Clear</button>
+        </div>
+        <div id="servicePlan" style="max-height: 200px; overflow-y: auto;">
+          <div class="text-muted text-center" style="padding: var(--space-lg);">
+            No items in plan
+          </div>
+        </div>
+        <button id="addToPlanBtn" class="btn btn-ghost w-full" style="margin-top: var(--space-sm);" disabled>
+          <span>+ Add to Plan</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Area: Preview & Controls -->
+    <div class="control-main">
+      <div class="section">
+        <div class="section-title">
+          <span>Live Preview</span>
+          <div id="liveStatus"></div>
+        </div>
+        <div id="preview" class="preview-box">
+          Fetch a verse to see the preview here
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <span>History</span>
+          <button id="clearHistoryBtn" class="btn btn-sm btn-ghost">Clear</button>
+        </div>
+        <div id="history" style="max-height: 400px; overflow-y: auto;">
+          <div class="text-muted text-center" style="padding: var(--space-lg);">
+            No history yet
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: OBS Integration & Settings -->
+    <div class="control-panel">
+      <div class="section">
+        <div class="section-title">OBS Integration</div>
+        <div class="flex-col gap-md">
+          <div>
+            <label class="label">WebSocket URL</label>
+            <input type="text" id="obsUrl" class="input" value="ws://127.0.0.1:4455">
+          </div>
+          <div>
+            <label class="label">Password (optional)</label>
+            <input type="password" id="obsPassword" class="input" placeholder="Leave empty if none">
+          </div>
+          <button id="obsConnectBtn" class="btn btn-primary w-full">
+            <span>Connect to OBS</span>
+          </button>
+          <button id="obsEnsureBtn" class="btn btn-ghost w-full" disabled>
+            <span>Setup Overlay in All Scenes</span>
+          </button>
+          <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.5;">
+            💡 Tip: Enable OBS WebSocket in Tools → WebSocket Server Settings
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <span>Favorites</span>
+          <button id="addFavoriteBtn" class="btn btn-sm btn-ghost" disabled>+ Add</button>
+        </div>
+        <div id="favorites" style="max-height: 300px; overflow-y: auto;">
+          <div class="text-muted text-center" style="padding: var(--space-lg);">
+            No favorites yet
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Mobile Remote</div>
+        <div class="flex-col gap-md items-center">
+          <div id="qrCode" style="background: white; padding: var(--space-md); border-radius: var(--radius-md);"></div>
+          <div id="remoteUrl" class="text-center text-muted" style="font-size: 0.8125rem;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="control.js"></script>
+</body>
+</html>

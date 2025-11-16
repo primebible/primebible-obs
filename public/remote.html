@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>PrimeBible Remote</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    body {
+      touch-action: manipulation;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .remote-container {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: var(--space-lg);
+      gap: var(--space-lg);
+    }
+
+    .remote-header {
+      text-align: center;
+      padding: var(--space-lg) 0;
+    }
+
+    .remote-title {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: var(--space-sm);
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .remote-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xl);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .large-input {
+      width: 100%;
+      padding: var(--space-md) var(--space-lg);
+      font-size: 1.125rem;
+      border-radius: var(--radius-lg);
+      background: var(--bg-secondary);
+      border: 2px solid var(--border-subtle);
+      color: var(--text-primary);
+      transition: all var(--transition-base);
+    }
+
+    .large-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px var(--primary-glow);
+      outline: none;
+    }
+
+    .large-select {
+      width: 100%;
+      padding: var(--space-md) var(--space-lg);
+      font-size: 1rem;
+      border-radius: var(--radius-lg);
+      background: var(--bg-secondary);
+      border: 2px solid var(--border-subtle);
+      color: var(--text-primary);
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23b4b4b8' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 1rem center;
+      padding-right: 3rem;
+    }
+
+    .control-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-md);
+      margin-top: var(--space-lg);
+    }
+
+    .control-btn {
+      padding: var(--space-lg);
+      font-size: 1.125rem;
+      font-weight: 600;
+      border-radius: var(--radius-xl);
+      border: 2px solid;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-sm);
+      transition: all var(--transition-base);
+      touch-action: manipulation;
+    }
+
+    .control-btn:active {
+      transform: scale(0.95);
+    }
+
+    .control-btn-live {
+      grid-column: 1 / -1;
+      background: linear-gradient(135deg, var(--accent), #059669);
+      border-color: var(--accent);
+      color: white;
+      box-shadow: 0 8px 24px rgba(52, 211, 153, 0.4);
+    }
+
+    .control-btn-hide {
+      background: var(--bg-secondary);
+      border-color: var(--border-medium);
+      color: var(--text-primary);
+    }
+
+    .control-btn-nav {
+      background: var(--bg-secondary);
+      border-color: var(--border-medium);
+      color: var(--text-primary);
+    }
+
+    .btn-icon-large {
+      font-size: 2rem;
+      line-height: 1;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-sm);
+      padding: var(--space-sm);
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+
+    .quick-refs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .quick-ref-btn {
+      padding: var(--space-md);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      transition: all var(--transition-base);
+      touch-action: manipulation;
+    }
+
+    .quick-ref-btn:active {
+      background: var(--bg-tertiary);
+      border-color: var(--primary);
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-xs);
+      padding: var(--space-xs) var(--space-md);
+      background: rgba(52, 211, 153, 0.15);
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="remote-container">
+    <div class="remote-header">
+      <div class="remote-title">PrimeBible Remote</div>
+      <div class="status-bar">
+        <span class="status-dot" id="wsStatus"></span>
+        <span id="statusText">Connecting...</span>
+      </div>
+    </div>
+
+    <div class="remote-card">
+      <h3 style="margin-bottom: var(--space-md); font-size: 1rem; color: var(--text-secondary);">Verse Lookup</h3>
+      <div class="flex-col gap-md">
+        <input
+          type="text"
+          id="refInput"
+          class="large-input"
+          placeholder="e.g., John 3:16"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+        >
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
+          <div>
+            <label class="label">Translation</label>
+            <select id="translationSelect" class="large-select">
+              <option value="kjv">KJV</option>
+              <option value="niv">NIV</option>
+              <option value="esv">ESV</option>
+              <option value="nlt">NLT</option>
+              <option value="web">WEB</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Theme</label>
+            <select id="themeSelect" class="large-select">
+              <option value="glass-lower">Glass Lower</option>
+              <option value="minimal-center">Minimal</option>
+              <option value="full-screen">Full Screen</option>
+              <option value="corner-card">Corner</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="remote-card">
+      <h3 style="margin-bottom: var(--space-md); font-size: 1rem; color: var(--text-secondary);">Quick References</h3>
+      <div class="quick-refs">
+        <button class="quick-ref-btn" data-ref="Psalm 23">Psalm 23</button>
+        <button class="quick-ref-btn" data-ref="John 3:16">John 3:16</button>
+        <button class="quick-ref-btn" data-ref="Romans 8:28">Romans 8:28</button>
+        <button class="quick-ref-btn" data-ref="Philippians 4:13">Phil 4:13</button>
+        <button class="quick-ref-btn" data-ref="Proverbs 3:5-6">Prov 3:5-6</button>
+        <button class="quick-ref-btn" data-ref="Matthew 6:33">Matt 6:33</button>
+      </div>
+    </div>
+
+    <div class="remote-card">
+      <div id="liveStatus" style="text-align: center; margin-bottom: var(--space-md); min-height: 24px;"></div>
+      <div class="control-buttons">
+        <button class="control-btn control-btn-live" id="goLiveBtn">
+          <span class="btn-icon-large">🎯</span>
+          <span>Go Live</span>
+        </button>
+        <button class="control-btn control-btn-hide" id="hideBtn">
+          <span class="btn-icon-large">🙈</span>
+          <span>Hide</span>
+        </button>
+        <button class="control-btn control-btn-nav" id="prevBtn">
+          <span class="btn-icon-large">⬅️</span>
+          <span>Previous</span>
+        </button>
+        <button class="control-btn control-btn-nav" id="nextBtn">
+          <span class="btn-icon-large">➡️</span>
+          <span>Next</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="remote.js"></script>
+</body>
+</html>

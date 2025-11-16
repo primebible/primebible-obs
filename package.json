@@ -1,0 +1,23 @@
+{
+  "name": "primebible-obs-pro",
+  "version": "2.0.0",
+  "description": "PrimeBible Pro for OBS - The ultimate Bible overlay system with professional features, stunning design, and unmatched performance",
+  "type": "module",
+  "license": "MIT",
+  "author": "PrimeBible Team",
+  "keywords": ["obs", "bible", "overlay", "worship", "church", "streaming"],
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "obs-websocket-js": "^5.0.3",
+    "ws": "^8.17.0",
+    "qrcode": "^1.5.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
