@@ -50,7 +50,7 @@
 - **🔗 Deep OBS Integration**: Automated setup, source management, and visibility control
 - **📱 Multi-Device Support**: Control from desktop, tablet, or phone
 - **🖌️ Live Annotation**: Draw, highlight, and annotate verses in real-time
-- **📚 300+ Bible Versions**: Powered by PrimeBible API with extensive translation support
+- **📚 Multiple Bible Translations**: Powered by PrimeBible API (default: KJV, AKJV, WEB, ASV - configurable)
 - **🛠️ Zero Config**: Works out-of-the-box with sensible defaults
 - **🔒 100% Free**: Open source, no subscriptions, no paywalls
 
