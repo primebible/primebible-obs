@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Verse Detection Demo - PrimeBible</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: white;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding: 40px 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .header h1 {
+      font-size: 36px;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #60a5fa, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .header p {
+      font-size: 18px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    #voiceControlContainer {
+      margin-bottom: 30px;
+    }
+    
+    .results-panel {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+    }
+    
+    .results-panel h3 {
+      margin-bottom: 16px;
+      color: #60a5fa;
+      font-size: 18px;
+    }
+    
+    .verse-display {
+      background: rgba(96, 165, 250, 0.1);
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      border-radius: 8px;
+      padding: 20px;
+      margin-top: 12px;
+    }
+    
+    .verse-reference {
+      font-size: 20px;
+      font-weight: 700;
+      color: #60a5fa;
+      margin-bottom: 12px;
+    }
+    
+    .verse-text {
+      font-size: 16px;
+      line-height: 1.8;
+      color: rgba(255, 255, 255, 0.9);
+    }
+    
+    .no-results {
+      padding: 40px;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.5);
+      font-style: italic;
+    }
+    
+    .info-box {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 30px;
+    }
+    
+    .info-box h3 {
+      color: #60a5fa;
+      margin-bottom: 12px;
+      font-size: 18px;
+    }
+    
+    .info-box ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    
+    .info-box li {
+      padding: 8px 0;
+      color: rgba(255, 255, 255, 0.8);
+      line-height: 1.6;
+    }
+    
+    .info-box li:before {
+      content: "✓ ";
+      color: #60a5fa;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+    
+    .browser-warning {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 20px;
+      color: #fca5a5;
+      display: none;
+    }
+    
+    .browser-warning.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎤 Voice Verse Detection</h1>
+      <p>Speak Bible references naturally and watch them appear</p>
+    </div>
+    
+    <!-- Voice Control UI will be inserted here -->
+    <div id="voiceControlContainer"></div>
+    
+    <!-- Results Panel -->
+    <div class="results-panel">
+      <h3>📖 Detected Verses</h3>
+      <div id="verseResults">
+        <div class="no-results">
+          Speak a verse reference to see it here.<br>
+          Try saying: "John 3:16" or "Romans chapter 8 verse 28"
+        </div>
+      </div>
+    </div>
+    
+    <!-- Browser compatibility warning -->
+    <div class="browser-warning" id="browserWarning">
+      <strong>⚠️ Browser Compatibility Issue</strong><br>
+      Speech recognition works best in Chrome, Edge, or Safari.<br>
+      Firefox does not currently support the Web Speech API.
+    </div>
+    
+    <!-- Info Box -->
+    <div class="info-box">
+      <h3>ℹ️ How It Works</h3>
+      <ul>
+        <li>Click "Start Listening" to activate voice recognition</li>
+        <li>Speak a Bible reference in natural language</li>
+        <li>The system will parse and display the reference</li>
+        <li>Works with abbreviations: "Rom 8:28" or full names: "Romans chapter 8 verse 28"</li>
+        <li>Supports verse ranges: "John 3:16 to 18" or "Psalm 23 verses 1 through 6"</li>
+      </ul>
+    </div>
+    
+    <div class="info-box">
+      <h3>🔗 Integration</h3>
+      <ul>
+        <li>Add voice-control.js and voice-control-ui.js to your project</li>
+        <li>Connect to your Bible API to fetch actual verse text</li>
+        <li>Works with WebSocket for real-time overlay updates</li>
+        <li>Compatible with OBS Browser Source (Chromium-based)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Include the voice control script (combined version) -->
+  <script src="voice-control.js"></script>
+  
+  <script>
+    // Check browser support
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      document.getElementById('browserWarning').classList.add('show');
+    }
+    
+    // Initialize voice control
+    const voiceControl = new VoiceControlUI('voiceControlContainer', handleVerseRequest);
+    
+    function handleVerseRequest(verse) {
+      console.log('Verse requested:', verse);
+      
+      // Format the reference
+      const reference = voiceControl.detector.formatReference(verse);
+      
+      // Display in results panel
+      displayVerseResult(reference, verse);
+      
+      // In a real app, you would fetch the verse text from your API here:
+      // fetchVerseFromAPI(verse.book, verse.chapter, verse.verseStart, verse.verseEnd)
+      //   .then(verseText => updateVerseDisplay(reference, verseText));
+    }
+    
+    function displayVerseResult(reference, verse) {
+      const resultsDiv = document.getElementById('verseResults');
+      
+      // Create verse display
+      const verseDisplay = document.createElement('div');
+      verseDisplay.className = 'verse-display';
+      verseDisplay.style.animation = 'fadeIn 0.5s ease';
+      
+      // Add animation
+      if (!document.getElementById('fadeInStyle')) {
+        const style = document.createElement('style');
+        style.id = 'fadeInStyle';
+        style.textContent = `
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+      
+      verseDisplay.innerHTML = `
+        <div class="verse-reference">${reference}</div>
+        <div class="verse-text">
+          <em>Verse text would appear here...</em><br><br>
+          In a full implementation, this would fetch the actual verse text from your Bible API.<br><br>
+          Detected: Book="${verse.book}", Chapter=${verse.chapter}, Verses=${verse.verseStart}-${verse.verseEnd}
+        </div>
+      `;
+      
+      // Clear "no results" message if present
+      const noResults = resultsDiv.querySelector('.no-results');
+      if (noResults) {
+        noResults.remove();
+      }
+      
+      // Add to top of results
+      resultsDiv.insertBefore(verseDisplay, resultsDiv.firstChild);
+      
+      // Limit to 5 most recent
+      const displays = resultsDiv.querySelectorAll('.verse-display');
+      if (displays.length > 5) {
+        displays[displays.length - 1].remove();
+      }
+    }
+    
+    // Example function for API integration (placeholder)
+    async function fetchVerseFromAPI(book, chapter, verseStart, verseEnd) {
+      // Replace with your actual API endpoint
+      // const response = await fetch(`/api/verses/${book}/${chapter}/${verseStart}-${verseEnd}`);
+      // return await response.json();
+      
+      return {
+        reference: `${book} ${chapter}:${verseStart}-${verseEnd}`,
+        text: "This is where the actual verse text would appear from your API..."
+      };
+    }
+  </script>
+</body>
+</html>

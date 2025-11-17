@@ -1,0 +1,9 @@
+{
+  "bgColor": "#372f2f",
+  "bgTransparency": 0.98,
+  "verseFont": "merriweather",
+  "referenceFont": "lora",
+  "verseSize": 0.98,
+  "referenceSize": 1.23,
+  "solidBackground": false
+}

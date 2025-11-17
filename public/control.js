@@ -8,15 +8,45 @@
   let servicePlan = [];
   let obsConnected = false;
   let wsConnected = false;
+  
+  // Background customization state
+  let bgColor = localStorage.getItem('primebible-bg-color') || '#000000';
+  let bgTransparency = parseInt(localStorage.getItem('primebible-bg-transparency') || '75');
+  let solidBackground = localStorage.getItem('primebible-bg-solid') === 'true';
+  
+  // Font customization state
+  let verseFont = localStorage.getItem('primebible-verse-font') || 'poppins';
+  let referenceFont = localStorage.getItem('primebible-ref-font') || 'montserrat';
+  
+  // Font size state
+  let verseFontSize = parseInt(localStorage.getItem('primebible-verse-size') || '100');
+  let referenceFontSize = parseInt(localStorage.getItem('primebible-ref-size') || '100');
 
   // WebSocket
   const wsUrl = `${location.origin.replace('http', 'ws')}/?role=control`;
   let ws = new WebSocket(wsUrl);
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 10;
 
   // Elements
   const els = {
     wsStatus: document.getElementById('wsStatus'),
     obsStatus: document.getElementById('obsStatus'),
+    bgColorPicker: document.getElementById('bgColorPicker'),
+    transparencySlider: document.getElementById('transparencySlider'),
+    transparencyValue: document.getElementById('transparencyValue'),
+    bgPreview: document.getElementById('bgPreview'),
+    applyBgBtn: document.getElementById('applyBgBtn'),
+    solidBgCheckbox: document.getElementById('solidBgCheckbox'),
+    fontPreview: document.getElementById('fontPreview'),
+    verseFontSelect: document.getElementById('verseFontSelect'),
+    referenceFontSelect: document.getElementById('referenceFontSelect'),
+    applyFontsBtn: document.getElementById('applyFontsBtn'),
+    verseSizeSlider: document.getElementById('verseSizeSlider'),
+    verseSizeValue: document.getElementById('verseSizeValue'),
+    referenceSizeSlider: document.getElementById('referenceSizeSlider'),
+    referenceSizeValue: document.getElementById('referenceSizeValue'),
+    applySizesBtn: document.getElementById('applySizesBtn'),
     refInput: document.getElementById('refInput'),
     translationSelect: document.getElementById('translationSelect'),
     themeSelect: document.getElementById('themeSelect'),
@@ -40,25 +70,257 @@
     obsConnectBtn: document.getElementById('obsConnectBtn'),
     obsEnsureBtn: document.getElementById('obsEnsureBtn'),
     qrCode: document.getElementById('qrCode'),
-    remoteUrl: document.getElementById('remoteUrl')
+    remoteUrl: document.getElementById('remoteUrl'),
+    forceRefreshBtn: document.getElementById('forceRefreshBtn'),
+    enableDrawingBtn: document.getElementById('enableDrawingBtn'),
+    disableDrawingBtn: document.getElementById('disableDrawingBtn'),
+    clearDrawingBtn: document.getElementById('clearDrawingBtn')
   };
+
+  // Initialize saved values
+  els.bgColorPicker.value = bgColor;
+  els.transparencySlider.value = bgTransparency;
+   if (els.solidBgCheckbox) {
+    els.solidBgCheckbox.checked = solidBackground;
+  }
+  els.verseFontSelect.value = verseFont;
+  els.referenceFontSelect.value = referenceFont;
+  els.verseSizeSlider.value = verseFontSize;
+  els.referenceSizeSlider.value = referenceFontSize;
+
+  // Background customization handlers
+  function updateBgPreview() {
+    const alpha = bgTransparency / 100;
+    const rgb = hexToRgb(bgColor);
+    const bgValue = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+    
+    els.bgPreview.style.background = bgValue;
+    els.transparencyValue.textContent = `${bgTransparency}%`;
+  }
+
+  function updateFontPreview() {
+    const fontMap = {
+      'system': '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      'poppins': '"Poppins", sans-serif',
+      'lora': '"Lora", serif',
+      'merriweather': '"Merriweather", serif',
+      'roboto': '"Roboto", sans-serif',
+      'montserrat': '"Montserrat", sans-serif',
+      'opensans': '"Open Sans", sans-serif'
+    };
+
+    const verseEl = els.fontPreview.querySelector('.font-preview-verse');
+    const refEl = els.fontPreview.querySelector('.font-preview-ref');
+    
+    if (verseEl) {
+      verseEl.style.fontFamily = fontMap[verseFont];
+      verseEl.style.fontSize = `${1.125 * verseFontSize / 100}rem`;
+    }
+    
+    if (refEl) {
+      refEl.style.fontFamily = fontMap[referenceFont];
+      refEl.style.fontSize = `${0.875 * referenceFontSize / 100}rem`;
+    }
+  }
+
+  function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 0, g: 0, b: 0 };
+  }
+
+  els.bgColorPicker.addEventListener('input', (e) => {
+    bgColor = e.target.value;
+    updateBgPreview();
+  });
+
+  els.transparencySlider.addEventListener('input', (e) => {
+    bgTransparency = parseInt(e.target.value);
+    updateBgPreview();
+  });
+
+  if (els.solidBgCheckbox) {
+    els.solidBgCheckbox.addEventListener('change', (e) => {
+      solidBackground = e.target.checked;
+    });
+  }
+
+  els.applyBgBtn.addEventListener('click', () => {
+    const alpha = bgTransparency / 100;
+    
+    // Save to localStorage
+    localStorage.setItem('primebible-bg-color', bgColor);
+    localStorage.setItem('primebible-bg-transparency', bgTransparency);
+    localStorage.setItem('primebible-bg-solid', solidBackground ? 'true' : 'false');
+    
+    ws.send(JSON.stringify({
+      type: 'setBackground',
+      color: bgColor,
+      transparency: alpha,
+      solidBackground: solidBackground
+    }));
+
+    // Visual feedback
+    els.applyBgBtn.innerHTML = '<span>✓ Applied!</span>';
+    setTimeout(() => {
+      els.applyBgBtn.innerHTML = '<span>Apply Background</span>';
+    }, 2000);
+  });
+
+  els.forceRefreshBtn.addEventListener('click', () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    ws.send(JSON.stringify({
+      type: 'forceRefresh'
+    }));
+
+    setTimeout(() => {
+      ws.send(JSON.stringify({
+        type: 'setBackground',
+        color: bgColor,
+        transparency: bgTransparency / 100,
+        solidBackground: solidBackground
+      }));
+
+      ws.send(JSON.stringify({
+        type: 'setFonts',
+        verseFont: verseFont,
+        referenceFont: referenceFont
+      }));
+
+      ws.send(JSON.stringify({
+        type: 'setFontSizes',
+        verseSize: verseFontSize / 100,
+        referenceSize: referenceFontSize / 100
+      }));
+    }, 100);
+
+    els.forceRefreshBtn.innerHTML = '<span>✓ Refreshed!</span>';
+    setTimeout(() => {
+      els.forceRefreshBtn.innerHTML = '<span>🔄 Force Refresh OBS Overlay</span>';
+    }, 2000);
+  });
+
+  // Font customization handlers
+  els.verseFontSelect.addEventListener('change', (e) => {
+    verseFont = e.target.value;
+    updateFontPreview();
+  });
+
+  els.referenceFontSelect.addEventListener('change', (e) => {
+    referenceFont = e.target.value;
+    updateFontPreview();
+  });
+
+  els.applyFontsBtn.addEventListener('click', () => {
+    // Save to localStorage
+    localStorage.setItem('primebible-verse-font', verseFont);
+    localStorage.setItem('primebible-ref-font', referenceFont);
+    
+    ws.send(JSON.stringify({
+      type: 'setFonts',
+      verseFont: verseFont,
+      referenceFont: referenceFont
+    }));
+
+    // Visual feedback
+    els.applyFontsBtn.innerHTML = '<span>✓ Applied!</span>';
+    setTimeout(() => {
+      els.applyFontsBtn.innerHTML = '<span>Apply Fonts</span>';
+    }, 2000);
+  });
+
+  // Font size handlers
+  els.verseSizeSlider.addEventListener('input', (e) => {
+    verseFontSize = parseInt(e.target.value);
+    els.verseSizeValue.textContent = `${verseFontSize}%`;
+    updateFontPreview();
+  });
+
+  els.referenceSizeSlider.addEventListener('input', (e) => {
+    referenceFontSize = parseInt(e.target.value);
+    els.referenceSizeValue.textContent = `${referenceFontSize}%`;
+    updateFontPreview();
+  });
+
+  els.applySizesBtn.addEventListener('click', () => {
+    // Save to localStorage
+    localStorage.setItem('primebible-verse-size', verseFontSize);
+    localStorage.setItem('primebible-ref-size', referenceFontSize);
+    
+    ws.send(JSON.stringify({
+      type: 'setFontSizes',
+      verseSize: verseFontSize / 100,
+      referenceSize: referenceFontSize / 100
+    }));
+
+    // Visual feedback
+    els.applySizesBtn.innerHTML = '<span>✓ Applied!</span>';
+    setTimeout(() => {
+      els.applySizesBtn.innerHTML = '<span>Apply Font Sizes</span>';
+    }, 2000);
+  });
+
+  // Initialize previews
+  updateBgPreview();
+  updateFontPreview();
+  els.verseSizeValue.textContent = `${verseFontSize}%`;
+  els.referenceSizeValue.textContent = `${referenceFontSize}%`;
+
+  // Apply saved settings on connection
+  function applyStoredSettings() {
+    if (!wsConnected) return;
+    
+    // Apply background
+    ws.send(JSON.stringify({
+      type: 'setBackground',
+      color: bgColor,
+      transparency: bgTransparency / 100,
+      solidBackground: solidBackground
+    }));
+    
+    // Apply fonts
+    ws.send(JSON.stringify({
+      type: 'setFonts',
+      verseFont: verseFont,
+      referenceFont: referenceFont
+    }));
+    
+    // Apply sizes
+    ws.send(JSON.stringify({
+      type: 'setFontSizes',
+      verseSize: verseFontSize / 100,
+      referenceSize: referenceFontSize / 100
+    }));
+  }
 
   // WebSocket handlers
   ws.addEventListener('open', () => {
     console.log('[Control] Connected');
     wsConnected = true;
+    reconnectAttempts = 0;
     updateConnectionStatus();
+    
+    // Apply stored settings after connection
+    setTimeout(applyStoredSettings, 100);
   });
 
   ws.addEventListener('close', () => {
     console.log('[Control] Disconnected');
     wsConnected = false;
     updateConnectionStatus();
-    // Attempt reconnect
-    setTimeout(() => {
-      ws = new WebSocket(wsUrl);
-      setupWebSocket();
-    }, 2000);
+    // Attempt reconnect with exponential backoff
+    if (reconnectAttempts < maxReconnectAttempts) {
+      const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts), 30000);
+      setTimeout(() => {
+        reconnectAttempts++;
+        ws = new WebSocket(wsUrl);
+        setupWebSocket();
+      }, delay);
+    }
   });
 
   ws.addEventListener('message', (event) => {
@@ -73,15 +335,23 @@
   function setupWebSocket() {
     ws.addEventListener('open', () => {
       wsConnected = true;
+      reconnectAttempts = 0;
       updateConnectionStatus();
+      setTimeout(applyStoredSettings, 100);
     });
+    
     ws.addEventListener('close', () => {
       wsConnected = false;
       updateConnectionStatus();
     });
+    
     ws.addEventListener('message', (event) => {
-      const msg = JSON.parse(event.data);
-      handleMessage(msg);
+      try {
+        const msg = JSON.parse(event.data);
+        handleMessage(msg);
+      } catch (e) {
+        console.error('[Control] Message parse error:', e);
+      }
     });
   }
 
@@ -142,6 +412,11 @@
 
   // Fetch verse
   els.fetchBtn.addEventListener('click', fetchVerse);
+  els.refInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      fetchVerse();
+    }
+  });
   
   async function fetchVerse() {
     const ref = els.refInput.value.trim();
@@ -252,10 +527,10 @@
     els.history.innerHTML = history.slice().reverse().map(item => `
       <div class="history-item" data-ref="${escapeAttr(item.reference)}" data-translation="${escapeAttr(item.translationId)}">
         <div class="item-title">
-          <span>${escapeHtml(item.reference)}</span>
-          <span class="badge">${escapeHtml(item.translationName || item.translationId)}</span>
+          <span>${sanitizeHtmlBasicFormatting(item.reference)}</span>
+          <span class="badge">${sanitizeHtmlBasicFormatting(item.translationName || item.translationId)}</span>
         </div>
-        <div class="item-preview">${escapeHtml(item.preview)}</div>
+        <div class="item-preview">${sanitizeHtmlBasicFormatting(item.preview)}</div>
       </div>
     `).join('');
 
@@ -288,9 +563,9 @@
       return `
         <div class="favorite-item" data-ref="${escapeAttr(ref)}" data-translation="${escapeAttr(translation)}">
           <div class="item-title">
-            <span>${escapeHtml(ref)}</span>
+            <span>${sanitizeHtmlBasicFormatting(ref)}</span>
             <div>
-              <span class="badge">${escapeHtml(translation.toUpperCase())}</span>
+              <span class="badge">${sanitizeHtmlBasicFormatting(translation.toUpperCase())}</span>
               <button class="btn btn-sm btn-ghost" onclick="removeFavorite('${escapeAttr(key)}')">×</button>
             </div>
           </div>
@@ -335,9 +610,9 @@
     els.servicePlan.innerHTML = servicePlan.map((item, index) => `
       <div class="plan-item" data-index="${index}">
         <div class="item-title">
-          <span>${escapeHtml(item.reference)}</span>
+          <span>${sanitizeHtmlBasicFormatting(item.reference)}</span>
           <div>
-            <span class="badge">${escapeHtml(item.translationName || item.translationId)}</span>
+            <span class="badge">${sanitizeHtmlBasicFormatting(item.translationName || item.translationId)}</span>
             <button class="btn btn-sm btn-ghost" onclick="removePlanItem(${index})">×</button>
           </div>
         </div>
@@ -460,13 +735,40 @@
     }
   }
 
+  if (els.enableDrawingBtn) {
+    els.enableDrawingBtn.addEventListener('click', () => {
+      ws.send(JSON.stringify({ type: 'enableDrawing' }));
+    });
+  }
+
+  if (els.disableDrawingBtn) {
+    els.disableDrawingBtn.addEventListener('click', () => {
+      ws.send(JSON.stringify({ type: 'disableDrawing' }));
+    });
+  }
+
+  if (els.clearDrawingBtn) {
+    els.clearDrawingBtn.addEventListener('click', () => {
+      ws.send(JSON.stringify({ type: 'clearDrawing' }));
+    });
+  }
+
+  const remoteColorButtons = document.querySelectorAll('[data-remote-color]');
+  if (remoteColorButtons.length) {
+    remoteColorButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        ws.send(JSON.stringify({
+          type: 'setDrawColor',
+          color: btn.dataset.remoteColor
+        }));
+      });
+    });
+  }
+
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     // Ignore if typing in input
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
-      if (e.key === 'Enter' && e.target === els.refInput) {
-        fetchVerse();
-      }
       return;
     }
 
@@ -482,14 +784,25 @@
   });
 
   // Utilities
+  function sanitizeHtmlBasicFormatting(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    let html = div.innerHTML;
+    html = html.replace(/&lt;(\/?)(i)&gt;/gi, '<$1i>')
+               .replace(/&lt;(\/?)(strong)&gt;/gi, '<$1strong>')
+               .replace(/&lt;(\/?)(b)&gt;/gi, '<$1b>')
+               .replace(/&lt;(\/?)(u)&gt;/gi, '<$1u>');
+    return html;
+  }
+
   function escapeHtml(text) {
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = text || '';
     return div.innerHTML;
   }
 
   function escapeAttr(text) {
-    return text.replace(/"/g, '&quot;');
+    return (text || '').replace(/"/g, '&quot;');
   }
 
   function renderAll() {
@@ -503,5 +816,5 @@
   loadQRCode();
   updateConnectionStatus();
   
-  console.log('[Control] Ready');
+  console.log('[Control] Ready v2.1');
 })();

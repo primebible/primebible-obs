@@ -82,7 +82,7 @@ sudo apt install -y nodejs
 
 ```bash
 node --version  # Should show v20.x.x
-npm --version   # Should show 10.x.x
+2552   # Should show 10.x.x
 ```
 
 ---

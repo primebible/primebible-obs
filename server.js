@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws';
 import OBSWebSocket from 'obs-websocket-js';
 import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,12 +15,49 @@ const __dirname = path.dirname(__filename);
 const configPath = path.join(__dirname, 'config.json');
 let cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
+// PrimeBible-style config (same behavior as your Discord bot)
+const PRIMEBIBLE_API_URL = process.env.PRIMEBIBLE_API_URL || 'https://primebible.com/api/verse-preview';
+const ENABLE_BIBLEAPI_FALLBACK = process.env.PRIMEBIBLE_ENABLE_BIBLEAPI_FALLBACK !== '0';
+const ALLOWED_TRANSLATIONS = (process.env.PRIMEBIBLE_ALLOWED_TRANSLATIONS || 'KJV,AKJV,WEB,ASV')
+  .split(',')
+  .map(s => s.trim().toUpperCase())
+  .filter(Boolean);
+if (ALLOWED_TRANSLATIONS.length === 0) ALLOWED_TRANSLATIONS.push('KJV');
+if (ALLOWED_TRANSLATIONS.length > 25) {
+  console.warn('[Config] PRIMEBIBLE_ALLOWED_TRANSLATIONS has more than 25 items:', ALLOWED_TRANSLATIONS.length);
+}
+
+// Friendly names and metadata, same shape as your bot
+const TRANSLATION_INFO = {
+  'KJV': { name: 'King James Version', year: '1611', style: 'Traditional' },
+  'AKJV': { name: 'American King James Version', year: '1999', style: 'Updated Traditional' },
+  'WEB': { name: 'World English Bible', year: '2000', style: 'Modern' },
+  'ASV': { name: 'American Standard Version', year: '1901', style: 'Literal' },
+  'ESV': { name: 'English Standard Version', year: '2001', style: 'Literal' },
+  'NASB': { name: 'New American Standard Bible', year: '1971', style: 'Literal' },
+  'YLT': { name: 'Young\'s Literal Translation', year: '1898', style: 'Very Literal' }
+};
+
+// Normalize and enforce translation to match Discord bot gating
+function resolveTranslation(input) {
+  const t = String(input || '').trim().toUpperCase();
+  if (ALLOWED_TRANSLATIONS.includes(t)) return t;
+  const cfgDefault = String(cfg.defaultTranslation || '').trim().toUpperCase();
+  if (ALLOWED_TRANSLATIONS.includes(cfgDefault)) return cfgDefault;
+  return ALLOWED_TRANSLATIONS[0];
+}
+
+// Keep UI in sync with env-driven translations
+cfg.supportedTranslations = [...ALLOWED_TRANSLATIONS];
+cfg.defaultTranslation = resolveTranslation(cfg.defaultTranslation);
+
 // Persistence paths
 const dataDir = path.join(__dirname, 'data');
 const historyPath = path.join(dataDir, 'history.json');
 const favoritesPath = path.join(dataDir, 'favorites.json');
 const servicePlanPath = path.join(dataDir, 'service-plan.json');
 const searchIndexPath = path.join(dataDir, 'search-index.json');
+const customizationsPath = path.join(dataDir, 'customizations.json');
 
 // Ensure data directory exists
 if (!fs.existsSync(dataDir)) {
@@ -58,18 +96,18 @@ const searchIndex = loadJSON(searchIndexPath, []);
 const app = express();
 const server = app.listen(cfg.port, () => {
   console.log(`
-╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║         ✨ PrimeBible Pro for OBS ✨                        ║
-║                                                              ║
-║  Server running on: http://localhost:${cfg.port}                 ║
-║  Control Dock:      http://localhost:${cfg.port}/control         ║
-║  Mobile Remote:     http://localhost:${cfg.port}/remote          ║
-║  Overlay:           http://localhost:${cfg.port}/overlay         ║
-║                                                              ║
-║  💡 Tip: Add control page as Custom Browser Dock in OBS     ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
++====================================================================+
+|                                                                    |
+|         PrimeBible Pro for OBS                                     |
+|                                                                    |
+|  Server running on: http://localhost:${cfg.port}                       |
+|  Control Dock:      http://localhost:${cfg.port}/control               |
+|  Mobile Remote:     http://localhost:${cfg.port}/remote                |
+|  Overlay:           http://localhost:${cfg.port}/overlay               |
+|                                                                    |
+|  Tip: Add control page as Custom Browser Dock in OBS               |
+|                                                                    |
++====================================================================+
   `);
 });
 
@@ -80,18 +118,31 @@ const sockets = {
   overlay: new Set(),
   stage: new Set(),
   control: new Set(),
-  remote: new Set()};
+  remote: new Set()
+};
+
+let currentCustomizations = loadJSON(customizationsPath, {
+  bgColor: '#000000',
+  bgTransparency: 0.75,
+  verseFont: 'poppins',
+  referenceFont: 'montserrat',
+  verseSize: 1,
+  referenceSize: 1,
+  solidBackground: false
+});
 
 function broadcast(kind, data) {
-    const payload = JSON.stringify(data);
+  const payload = JSON.stringify(data);
   const targets = kind === 'overlay' ? ['overlay', 'stage'] : [kind];
   for (const role of targets) {
     const set = sockets[role] || new Set();
     for (const ws of set) {
-      try { ws.send(payload); } catch (e) { console.error(e); }
+      try {
+        ws.send(payload);
+      } catch (e) {
+        console.error(e);
+      }
     }
-  }
-} catch (e) { console.error(e); }
   }
 }
 
@@ -101,10 +152,14 @@ function broadcastToAll(data) {
   broadcast('remote', data);
 }
 
+function broadcastToOverlays(message) {
+  broadcast('overlay', message);
+}
+
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://localhost:${cfg.port}`);
   const role = url.searchParams.get('role') || 'overlay';
-  
+
   // PIN authentication for remote (if configured)
   if (role === 'remote' && cfg.remotePin) {
     const providedPin = url.searchParams.get('pin') || req.headers['x-remote-pin'];
@@ -115,7 +170,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
   }
-  
+
   if (!sockets[role]) sockets[role] = new Set();
   sockets[role].add(ws);
   console.log(`[WS] ${role} connected (${sockets[role].size} total)`);
@@ -149,7 +204,8 @@ wss.on('connection', (ws, req) => {
     },
     history: cfg.enableHistory ? history.slice(-20) : [],
     favorites: Array.from(favorites),
-    servicePlan
+    servicePlan,
+    customizations: currentCustomizations
   }));
 });
 
@@ -190,10 +246,9 @@ app.get('/api/qr', async (req, res) => {
 });
 
 function getLocalIp() {
-  const { networkInterfaces } = await import('os');
-  const nets = networkInterfaces();
+  const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
+    for (const net of nets[name] || []) {
       if (net.family === 'IPv4' && !net.internal) {
         return net.address;
       }
@@ -202,17 +257,18 @@ function getLocalIp() {
   return '127.0.0.1';
 }
 
-// Verse API with caching
+// Verse API with caching (now uses PrimeBible like your Discord bot)
 app.get('/api/verse', async (req, res) => {
   const ref = (req.query.ref || '').trim();
-  const translation = (req.query.translation || cfg.defaultTranslation).toLowerCase();
-  
+  const requestedTranslation = req.query.translation || cfg.defaultTranslation;
+
   if (!ref) {
     return res.status(400).json({ ok: false, error: 'Missing reference' });
   }
 
-  const cacheKey = `${ref}:${translation}`;
-  
+  const normalizedTranslation = resolveTranslation(requestedTranslation); // uppercase for API
+  const cacheKey = `${ref}:${normalizedTranslation.toLowerCase()}`;
+
   // Check cache
   if (cfg.cacheVerses && verseCache.has(cacheKey)) {
     const cached = verseCache.get(cacheKey);
@@ -222,18 +278,18 @@ app.get('/api/verse', async (req, res) => {
   }
 
   try {
-    const verse = await fetchVerse(ref, translation);
-    
+    const verse = await fetchVerse(ref, normalizedTranslation);
+
     // Cache it
     if (cfg.cacheVerses) {
       verseCache.set(cacheKey, { data: verse, timestamp: Date.now() });
     }
-    
+
     // Add to history
     if (cfg.enableHistory) {
       addToHistory(verse);
     }
-    
+
     res.json({ ok: true, data: verse, cached: false });
   } catch (e) {
     console.error('[API] Verse fetch error:', e);
@@ -306,16 +362,16 @@ app.post('/api/service-plan/import/csv', express.text(), async (req, res) => {
   try {
     const lines = req.body.split('\n').filter(l => l.trim());
     const imported = [];
-    
+
     for (let i = 1; i < lines.length; i++) { // Skip header
       const parts = lines[i].split(',').map(p => p.trim().replace(/^"|"$/g, ''));
       if (parts.length < 2) continue;
-      
+
       const [ref, translation, theme, notes] = parts;
-      
+
       // Fetch the verse
       try {
-        const verse = await fetchVerse(ref, translation || cfg.defaultTranslation);
+        const verse = await fetchVerse(ref, resolveTranslation(translation || cfg.defaultTranslation));
         if (notes) verse.notes = notes;
         if (theme) verse.theme = theme;
         imported.push(verse);
@@ -323,7 +379,7 @@ app.post('/api/service-plan/import/csv', express.text(), async (req, res) => {
         console.warn(`[Import] Failed to fetch ${ref}:`, e.message);
       }
     }
-    
+
     servicePlan.length = 0;
     servicePlan.push(...imported);
     saveJSON(servicePlanPath, servicePlan);
@@ -354,11 +410,11 @@ app.get('/api/service-plan/export/csv', (req, res) => {
   res.send(csv.join('\n'));
 });
 
-// Search verses
+// Search verses (local search over recent items)
 app.get('/api/search', async (req, res) => {
   const query = (req.query.q || '').trim().toLowerCase();
-  const translation = (req.query.translation || cfg.defaultTranslation).toLowerCase();
-  
+  const translation = resolveTranslation(req.query.translation || cfg.defaultTranslation).toLowerCase();
+
   if (!query || query.length < 2) {
     return res.status(400).json({ ok: false, error: 'Query too short (min 2 characters)' });
   }
@@ -367,25 +423,26 @@ app.get('/api/search', async (req, res) => {
     // Search in local index (history + favorites + service plan)
     const results = [];
     const seen = new Set();
-    
+
     // Build search corpus from history, favorites, and service plan
     const corpus = [
       ...history.map(h => ({ ...h, source: 'history' })),
       ...Array.from(favorites).map(key => {
         const [ref, tr] = key.split(':');
         return { reference: ref, translationId: tr, source: 'favorite' };
+        // translationName may be missing for favorites-only items
       }),
       ...servicePlan.map(p => ({ ...p, source: 'plan' }))
     ];
-    
+
     // Search through corpus
     for (const item of corpus) {
       const ref = (item.reference || '').toLowerCase();
       const text = (item.preview || item.fullText || '').toLowerCase();
       const key = `${item.reference}:${item.translationId}`;
-      
+
       if (seen.has(key)) continue;
-      
+
       if (ref.includes(query) || text.includes(query)) {
         results.push({
           reference: item.reference,
@@ -395,14 +452,14 @@ app.get('/api/search', async (req, res) => {
           source: item.source
         });
         seen.add(key);
-        
+
         if (results.length >= 20) break;
       }
     }
-    
+
     // Also add to search index for future searches
     updateSearchIndex(query, results);
-    
+
     res.json({ ok: true, results, count: results.length });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -432,9 +489,9 @@ async function connectObs() {
     await obs.connect(cfg.obsWebsocketUrl, cfg.obsPassword);
     obsConnected = true;
     obsReconnectAttempts = 0;
-    console.log('[OBS] ✓ Connected');
+    console.log('[OBS] Connected');
     broadcastToAll({ type: 'obsStatusChanged', connected: true });
-    
+
     // Auto-ensure overlay if configured
     if (cfg.autoCreateOverlayInAllScenes) {
       try {
@@ -445,7 +502,7 @@ async function connectObs() {
         console.warn('[OBS] Auto-ensure overlay failed:', e.message);
       }
     }
-    
+
     return true;
   } catch (e) {
     console.warn('[OBS] Connection failed:', String(e));
@@ -461,12 +518,12 @@ function scheduleObsReconnect() {
     console.warn('[OBS] Max reconnect attempts reached. Giving up.');
     return;
   }
-  
+
   const delay = Math.min(5000 * Math.pow(2, obsReconnectAttempts), 60000); // Exponential backoff, max 60s
   obsReconnectAttempts++;
-  
+
   console.log(`[OBS] Reconnecting in ${delay}ms (attempt ${obsReconnectAttempts}/${MAX_OBS_RECONNECT_ATTEMPTS})`);
-  
+
   obsReconnectTimer = setTimeout(() => {
     obsReconnectTimer = null;
     connectObs();
@@ -481,7 +538,7 @@ obs.on('ConnectionClosed', () => {
 });
 
 obs.on('ConnectionError', (err) => {
-  console.error('[OBS] Connection error:', err.message);
+  console.error('[OBS] Connection error:', err?.message || String(err));
   obsConnected = false;
   scheduleObsReconnect();
 });
@@ -502,11 +559,11 @@ app.post('/api/obs/ensure-overlay', async (req, res) => {
     if (!await connectObs()) {
       return res.status(500).json({ ok: false, error: 'OBS not connected' });
     }
-    
+
     const theme = req.body?.theme || cfg.defaultTheme;
     const overlayUrl = `http://127.0.0.1:${cfg.port}/overlay.html?theme=${encodeURIComponent(theme)}`;
     const sourceName = req.body?.sourceName || cfg.overlaySourceName;
-    
+
     const created = await ensureOverlayInAllScenes(sourceName, overlayUrl);
     res.json({ ok: true, created });
   } catch (e) {
@@ -520,7 +577,7 @@ app.post('/api/obs/overlay-visible', async (req, res) => {
     if (!await connectObs()) {
       return res.status(500).json({ ok: false, error: 'OBS not connected' });
     }
-    
+
     const visible = !!req.body.visible;
     const sourceName = req.body?.sourceName || cfg.overlaySourceName;
     await setOverlayVisibleInProgram(sourceName, visible);
@@ -533,10 +590,10 @@ app.post('/api/obs/overlay-visible', async (req, res) => {
 async function ensureOverlayInAllScenes(sourceName, url) {
   const { scenes } = await obs.call('GetSceneList');
   const created = [];
-  
+
   for (const scene of scenes) {
     const sceneName = scene.sceneName;
-    
+
     try {
       await obs.call('GetSceneItemId', { sceneName, sourceName });
       // Exists, update URL
@@ -546,7 +603,7 @@ async function ensureOverlayInAllScenes(sourceName, url) {
         overlay: true
       });
     } catch {
-      // Doesn't exist, create it
+      // Does not exist, create it
       const result = await obs.call('CreateInput', {
         sceneName,
         inputName: sourceName,
@@ -565,7 +622,7 @@ async function ensureOverlayInAllScenes(sourceName, url) {
       created.push({ sceneName, inputUuid: result.inputUuid });
     }
   }
-  
+
   return created;
 }
 
@@ -587,8 +644,7 @@ async function handleClientMessage(role, ws, data) {
   switch (data.type) {
     case 'requestVerse': {
       const ref = (data.ref || '').trim();
-      const translation = (data.translation || cfg.defaultTranslation).toLowerCase();
-      
+      const translation = resolveTranslation(data.translation || cfg.defaultTranslation);
       try {
         const verse = await fetchVerse(ref, translation);
         if (cfg.enableHistory) addToHistory(verse);
@@ -606,7 +662,7 @@ async function handleClientMessage(role, ws, data) {
         theme: data.theme || cfg.defaultTheme,
         animation: data.animation || cfg.defaultAnimation
       });
-      
+
       if (data.autoShowOverlay && obsConnected) {
         try {
           await setOverlayVisibleInProgram(cfg.overlaySourceName, true);
@@ -619,7 +675,7 @@ async function handleClientMessage(role, ws, data) {
 
     case 'hideOverlay': {
       broadcast('overlay', { type: 'hideVerse' });
-      
+
       if (obsConnected) {
         try {
           await setOverlayVisibleInProgram(cfg.overlaySourceName, false);
@@ -650,6 +706,65 @@ async function handleClientMessage(role, ws, data) {
       break;
     }
 
+    case 'setBackground': {
+      if (typeof data.color === 'string') {
+        currentCustomizations.bgColor = data.color;
+      }
+      if (typeof data.transparency === 'number') {
+        currentCustomizations.bgTransparency = data.transparency;
+      }
+      if (typeof data.solidBackground === 'boolean') {
+        currentCustomizations.solidBackground = data.solidBackground;
+      }
+
+      saveJSON(customizationsPath, currentCustomizations);
+
+      broadcastToOverlays({
+        type: 'setBackground',
+        color: currentCustomizations.bgColor,
+        transparency: currentCustomizations.bgTransparency,
+        solidBackground: currentCustomizations.solidBackground
+      });
+      break;
+    }
+
+    case 'setFonts': {
+      if (data.verseFont) currentCustomizations.verseFont = data.verseFont;
+      if (data.referenceFont) currentCustomizations.referenceFont = data.referenceFont;
+
+      saveJSON(customizationsPath, currentCustomizations);
+
+      broadcastToOverlays({
+        type: 'setFonts',
+        verseFont: currentCustomizations.verseFont,
+        referenceFont: currentCustomizations.referenceFont
+      });
+      break;
+    }
+
+    case 'setFontSizes': {
+      if (typeof data.verseSize === 'number') {
+        currentCustomizations.verseSize = data.verseSize;
+      }
+      if (typeof data.referenceSize === 'number') {
+        currentCustomizations.referenceSize = data.referenceSize;
+      }
+
+      saveJSON(customizationsPath, currentCustomizations);
+
+      broadcastToOverlays({
+        type: 'setFontSizes',
+        verseSize: currentCustomizations.verseSize,
+        referenceSize: currentCustomizations.referenceSize
+      });
+      break;
+    }
+
+    case 'forceRefresh': {
+      broadcastToOverlays({ type: 'forceRefresh' });
+      break;
+    }
+
     case 'ticker': {
       broadcast('overlay', {
         type: 'ticker',
@@ -657,6 +772,39 @@ async function handleClientMessage(role, ws, data) {
         action: data.action || 'start',
         speed: data.speed || 30
       });
+      break;
+    }
+
+    case 'drawing': {
+      broadcastToOverlays({
+        type: 'drawing',
+        action: data.action,
+        point: data.point,
+        color: data.color,
+        lineWidth: data.lineWidth,
+        isEraser: data.isEraser,
+        origin: data.origin
+      });
+      break;
+    }
+
+    case 'clearDrawing': {
+      broadcastToOverlays({ type: 'clearDrawing' });
+      break;
+    }
+
+    case 'enableDrawing': {
+      broadcastToOverlays({ type: 'enableDrawing' });
+      break;
+    }
+
+    case 'disableDrawing': {
+      broadcastToOverlays({ type: 'disableDrawing' });
+      break;
+    }
+
+    case 'setDrawColor': {
+      broadcastToOverlays({ type: 'setDrawColor', color: data.color });
       break;
     }
 
@@ -673,15 +821,16 @@ async function handleClientMessage(role, ws, data) {
   }
 }
 
-// Verse fetcher with multiple providers
-async function fetchVerse(ref, translation) {
+// Verse fetcher: PrimeBible first (Discord-style), optional fallback to bible-api.com
+async function fetchVerse(ref, translationCode) {
+  const tr = resolveTranslation(translationCode); // uppercase
   const providers = [
-    () => fetchFromBibleApi(ref, translation),
-    () => fetchFromApiDotBible(ref, translation)
+    () => fetchFromPrimeBible(ref, tr),
+    ...(ENABLE_BIBLEAPI_FALLBACK ? [() => fetchFromBibleApi(ref, tr)] : [])
   ];
 
   let lastError;
-  
+
   for (const provider of providers) {
     try {
       const result = await provider();
@@ -691,31 +840,38 @@ async function fetchVerse(ref, translation) {
       continue;
     }
   }
-  
+
   throw lastError || new Error('All providers failed');
 }
 
-async function fetchFromBibleApi(ref, translation) {
-  const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${encodeURIComponent(translation)}`;
-  
+// PrimeBible provider (matches your Discord bot flow)
+async function fetchFromPrimeBible(ref, translation) {
+  const urlObj = new URL(PRIMEBIBLE_API_URL);
+  urlObj.searchParams.set('ref', ref);
+  urlObj.searchParams.set('translation', translation);
+  urlObj.searchParams.set('origin', 'obs');
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-  
+
   try {
-    const response = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
+    const response = await fetch(urlObj.toString(), {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'PrimeBible-OBS/2.0.0'
+      },
       signal: controller.signal
     });
-    
+
     clearTimeout(timeout);
-    
+
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`bible-api.com: ${response.status} ${text.substring(0, 100)}`);
+      const text = await response.text().catch(() => '');
+      throw new Error(`primebible.com: ${response.status} ${text.substring(0, 120)}`);
     }
-    
+
     const json = await response.json();
-    return normalizeVerseData(json, ref, translation, 'bible-api.com');
+    return normalizePrimeBibleData(json, ref, translation, 'primebible.com');
   } catch (e) {
     clearTimeout(timeout);
     if (e.name === 'AbortError') {
@@ -725,14 +881,126 @@ async function fetchFromBibleApi(ref, translation) {
   }
 }
 
+// bible-api.com fallback (kept for resilience, can be disabled with PRIMEBIBLE_ENABLE_BIBLEAPI_FALLBACK=0)
+async function fetchFromBibleApi(ref, translation) {
+  const url = `https://bible-api.com/${encodeURIComponent(ref)}?translation=${encodeURIComponent(String(translation).toLowerCase())}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`bible-api.com: ${response.status} ${text.substring(0, 100)}`);
+    }
+
+    const json = await response.json();
+    return normalizeBibleApiData(json, ref, translation, 'bible-api.com');
+  } catch (e) {
+    clearTimeout(timeout);
+    if (e.name === 'AbortError') {
+      throw new Error('Request timeout - please try again');
+    }
+    throw e;
+  }
+}
+
+// api.bible placeholder remains unimplemented
 async function fetchFromApiDotBible(ref, translation) {
-  // Alternative provider - implement as needed
   throw new Error('Not implemented');
 }
 
-function normalizeVerseData(json, ref, translation, provider) {
+// Normalize PrimeBible response into overlay-friendly payload
+function normalizePrimeBibleData(json, ref, translation, provider) {
+  // Accept several possible shapes: { ok, data }, { result }, or a direct object
+  const payload = (json && typeof json === 'object')
+    ? (json.data || json.result || json)
+    : {};
+
+  // Translation id and name
+  let translationId = String(
+    payload.translationId ||
+    payload.translation_id ||
+    payload.translationCode ||
+    (payload.translation && (payload.translation.id || payload.translation.code)) ||
+    translation
+  ).toUpperCase();
+
+  if (!ALLOWED_TRANSLATIONS.includes(translationId)) {
+    translationId = resolveTranslation(translation);
+  }
+
+  const tInfo = TRANSLATION_INFO[translationId];
+  const translationName =
+    payload.translationName ||
+    (payload.translation && payload.translation.name) ||
+    (tInfo ? tInfo.name : translationId);
+
+  // Verse list or text
   let verses = [];
-  
+  if (Array.isArray(payload.verses) && payload.verses.length > 0) {
+    verses = payload.verses.map(v => ({
+      book: (v.book_name || v.book || v.bookName || '').toString(),
+      chapter: Number(v.chapter || v.chapter_number || v.chapterNum || 0),
+      verse: Number(v.verse || v.verse_number || v.verseNum || 0),
+      text: String(v.text || '').trim()
+    })).filter(v => v.text);
+  } else if (payload.text) {
+    verses = [{
+      book: (payload.book_name || payload.book || payload.bookName || '').toString(),
+      chapter: Number(payload.chapter || payload.chapter_number || payload.chapterNum || 0),
+      verse: Number(payload.verse || payload.verse_number || payload.verseNum || 0),
+      text: String(payload.text || '').trim()
+    }];
+  } else if (Array.isArray(payload.items)) {
+    verses = payload.items.map(v => ({
+      book: String(v.book || v.bookName || ''),
+      chapter: Number(v.chapter || 0),
+      verse: Number(v.verse || 0),
+      text: String(v.text || '').trim()
+    })).filter(v => v.text);
+  }
+
+  const fullText = verses.length > 0
+    ? verses.map(v => v.verse ? `${v.verse} ${v.text}` : v.text).join(' ').replace(/\s+/g, ' ').trim()
+    : String(payload.preview || payload.fullText || payload.text || '').replace(/\s+/g, ' ').trim();
+
+  const slides = chunkTextIntoSlides(fullText, cfg.maxCharsPerSlide, cfg.maxLinesPerSlide);
+
+  const result = {
+    provider,
+    reference: payload.reference || ref,
+    translationId: translationId.toLowerCase(), // keep storage consistent with existing code
+    translationName,
+    verses,
+    fullText,
+    slides,
+    fetchedAt: new Date().toISOString()
+  };
+
+  // Optional extras if present
+  const urlField = payload.url || payload.shareUrl || payload.chapterUrl || payload.link;
+  if (urlField) result.url = urlField;
+  if (tInfo && !payload.translationName) {
+    result.translationMeta = { year: tInfo.year, style: tInfo.style };
+  } else if (payload.translationMeta) {
+    result.translationMeta = payload.translationMeta;
+  }
+
+  return result;
+}
+
+// Normalize bible-api.com response
+function normalizeBibleApiData(json, ref, translation, provider) {
+  let verses = [];
+
   if (Array.isArray(json.verses)) {
     verses = json.verses.map(v => ({
       book: v.book_name || v.book || '',
@@ -749,17 +1017,21 @@ function normalizeVerseData(json, ref, translation, provider) {
     }];
   }
 
-  const fullText = verses.map(v => 
+  const fullText = verses.map(v =>
     v.verse ? `${v.verse} ${v.text}` : v.text
   ).join(' ').replace(/\s+/g, ' ').trim();
 
   const slides = chunkTextIntoSlides(fullText, cfg.maxCharsPerSlide, cfg.maxLinesPerSlide);
 
+  // Try to map the translation name using Discord's metadata if possible
+  const requestedUpper = String(translation || '').toUpperCase();
+  const tInfo = TRANSLATION_INFO[requestedUpper];
+
   return {
     provider,
     reference: json.reference || ref,
-    translationId: translation.toLowerCase(),
-    translationName: json.translation_name || translation.toUpperCase(),
+    translationId: String(translation || '').toLowerCase(),
+    translationName: json.translation_name || (tInfo ? tInfo.name : requestedUpper),
     verses,
     fullText,
     slides,
@@ -768,13 +1040,15 @@ function normalizeVerseData(json, ref, translation, provider) {
 }
 
 function chunkTextIntoSlides(text, maxChars, maxLines) {
-  const sentences = text.split(/(?<=[.!?])\s+/);
+  // Split into sentences without using regex lookbehind (avoids syntax errors on older Node)
+  const sentences = (text.match(/[^.!?]+[.!?]*/g) || [text]).map(s => s.trim());
   const slides = [];
   let currentSlide = '';
 
   for (const sentence of sentences) {
     const testSlide = currentSlide ? `${currentSlide} ${sentence}` : sentence;
-    const lines = Math.ceil(testSlide.length / (maxChars / maxLines));
+    const denom = (maxChars && maxLines) ? (maxChars / maxLines) : Number.MAX_SAFE_INTEGER;
+    const lines = Math.ceil(testSlide.length / denom);
 
     if (testSlide.length > maxChars || lines > maxLines) {
       if (currentSlide) slides.push(currentSlide);
@@ -785,7 +1059,7 @@ function chunkTextIntoSlides(text, maxChars, maxLines) {
   }
 
   if (currentSlide) slides.push(currentSlide);
-  
+
   return slides.length > 0 ? slides : [text];
 }
 
@@ -822,11 +1096,21 @@ app.get('/remote', (req, res) => {
 });
 
 // Graceful shutdown
+let isShuttingDown = false;
+
 process.on('SIGINT', () => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
   console.log('\n[Server] Shutting down gracefully...');
   if (obsConnected) {
-    obs.disconnect();
+    try {
+      obs.disconnect();
+    } catch (err) {
+      console.error('[OBS] Error during disconnect:', err);
+    }
   }
+
   server.close(() => {
     console.log('[Server] Closed');
     process.exit(0);
