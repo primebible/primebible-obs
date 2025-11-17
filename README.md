@@ -2,6 +2,15 @@
 
 # 🌟 PrimeBible Pro for OBS
 
+<div align="center">
+
+[![GitHub stars](https://img.shields.io/github/stars/primebible/primebible-obs?style=social)](https://github.com/primebible/primebible-obs/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/primebible/primebible-obs?style=social)](https://github.com/primebible/primebible-obs/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/primebible/primebible-obs)](https://github.com/primebible/primebible-obs/issues)
+[![License](https://img.shields.io/github/license/primebible/primebible-obs)](https://github.com/primebible/primebible-obs/blob/main/LICENSE)
+
+</div>
+
 **Professional Bible Overlay System for Live Streaming**
 
 [![Version](https://img.shields.io/badge/version-2.0-blue)](https://github.com/primebible/primebible-obs)
