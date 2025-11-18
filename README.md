@@ -289,6 +289,16 @@ Long passages are automatically chunked into slides:
 
 #### 4. Live Annotation
 
+**To enable annotation tools:**
+
+1. In OBS Studio, add the control as a **Browser source** with URL: `http://localhost:4456/control`
+2. 2. Right-click the Browser source → **Order → Move to Top** (to set as overlay)
+   3. 3. Right-click the Browser source → **Interact...**
+      4. 4. **IMPORTANT:** Click the **Enable button** on the annotation tools in the control panel
+         5. 5. You can now annotate directly over your overlay!
+           
+            6. **Available annotation tools:**
+
 - **Drawing Tool**: Freehand draw on the overlay
 - **Highlighter**: Emphasize specific words or phrases
 - **Eraser**: Remove annotations
