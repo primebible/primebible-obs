@@ -12,7 +12,8 @@
   let currentPayload = null;
   let currentSlideIndex = 0;
   let overlayElement = null;
-  let autoAdvanceTimer = null;
+  let transitionTimer = null;
+  let tickerSpeed = 30;
 
   // Unique id to prevent echo on mirrored drawing
   const overlayInstanceId = Math.random().toString(36).slice(2);
@@ -26,6 +27,8 @@
     document.documentElement.style.setProperty('--safe-area-bottom', `${safeAreaBottom}px`);
     document.documentElement.style.setProperty('--safe-area-top', `${safeAreaTop}px`);
     root.classList.add('safe-area-applied');
+    // Also on body so siblings of #root (e.g. the branding badge) can react
+    document.body.classList.add('safe-area-applied');
   }
   if (highContrast) {
     root.classList.add('high-contrast');
@@ -440,35 +443,28 @@
   drawingCanvas.addEventListener('pointercancel', finishPointer, { passive: false });
   drawingCanvas.addEventListener('pointerleave', (e) => { if (isPointerDown || isDraggingObject) finishPointer(e); }, { passive: false });
 
-  // WebSocket
-  const wsUrl = `${location.origin.replace('http', 'ws')}/?role=overlay`;
-  let ws = new WebSocket(wsUrl);
-  let reconnectAttempts = 0;
-  const maxReconnectAttempts = 10;
+  // WebSocket — retries forever with capped backoff. This runs 24/7 as an
+  // OBS browser source, so it must always find its way back to the server.
+  // The PIN (when configured) rides along from the page URL; the server's
+  // "Setup Overlay in All Scenes" generates source URLs that include it.
+  const pagePin = params.get('pin') || '';
+  const wsUrl = `${location.origin.replace('http', 'ws')}/?role=overlay${pagePin ? `&pin=${encodeURIComponent(pagePin)}` : ''}`;
+  let ws = null;
+  let reconnectDelay = 1000;
 
-  ws.addEventListener('open', () => { reconnectAttempts = 0; });
-  ws.addEventListener('close', () => {
-    if (reconnectAttempts < maxReconnectAttempts) {
-      const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts), 30000);
-      setTimeout(() => {
-        reconnectAttempts++;
-        ws = new WebSocket(wsUrl);
-        setupWebSocket();
-      }, delay);
-    }
-  });
-  ws.addEventListener('error', () => {});
-  ws.addEventListener('message', (event) => {
-    try { handleMessage(JSON.parse(event.data)); } catch {}
-  });
-
-  function setupWebSocket() {
-    ws.addEventListener('open', () => { reconnectAttempts = 0; });
-    ws.addEventListener('close', () => {});
+  function connectWebSocket() {
+    ws = new WebSocket(wsUrl);
+    ws.addEventListener('open', () => { reconnectDelay = 1000; });
+    ws.addEventListener('close', () => {
+      setTimeout(connectWebSocket, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
+    });
+    ws.addEventListener('error', () => {});
     ws.addEventListener('message', (event) => {
       try { handleMessage(JSON.parse(event.data)); } catch {}
     });
   }
+  connectWebSocket();
 
   // Convert coordinates
   function toNormalized(cssPt) {
@@ -537,6 +533,13 @@
 
     if (msg.action === 'begin') {
       if (!msg.point) return;
+      // Close any stroke left open by this origin (e.g. a lost 'end' event)
+      // so the new stroke doesn't append to it with a spurious connector.
+      const stale = drawnObjects.find(o => o.type === 'stroke' && o.remoteOrigin === origin && !o.completed);
+      if (stale) {
+        stale.completed = true;
+        delete stale.remoteOrigin;
+      }
       remoteLastPointByOrigin[origin] = fromNormalized(msg.point);
       return;
     }
@@ -592,6 +595,26 @@
             applyFontSizeCustomization(c.verseSize || 1, c.referenceSize || 1);
           }
         }
+        // Replay whatever is currently live so a reconnect (or an overlay
+        // opened after Go Live) shows the right content immediately — but
+        // skip the rebuild when identical content is already visible, or
+        // every network blip would blink the live feed.
+        if (msg.currentLive && msg.currentLive.payload) {
+          const live = msg.currentLive;
+          const idx = Number(live.slideIndex) || 0;
+          const sameContent = currentPayload && overlayElement
+            && live.payload.reference === currentPayload.reference
+            && live.payload.fullText === currentPayload.fullText
+            && (live.theme || currentTheme) === currentTheme;
+          if (!sameContent) {
+            displayVerse(live.payload, live.theme, live.animation, idx);
+          } else if (idx !== currentSlideIndex) {
+            currentSlideIndex = idx;
+            transitionSlide();
+          }
+        } else if (msg.currentLive && msg.currentLive.ticker) {
+          handleTicker({ action: 'start', text: msg.currentLive.ticker.text, speed: msg.currentLive.ticker.speed });
+        }
         break;
       }
 
@@ -600,13 +623,15 @@
         break;
 
       case 'hideVerse':
-        hideOverlay();
+        clearLive();
         break;
 
       case 'setTheme':
         if (msg.theme) {
           currentTheme = msg.theme;
-          if (currentPayload) displayVerse(currentPayload, currentTheme, currentAnimation);
+          // Rebuild the current slide in the new theme only if something is
+          // actually on screen — and keep the slide position.
+          if (currentPayload && overlayElement) transitionSlide();
         }
         break;
 
@@ -663,7 +688,9 @@
 
       case 'setDrawColor':
         if (msg.color) {
-          setColor(msg.color);
+          // broadcast=false: applying a relayed color must not re-send it,
+          // or two clients ping-pong the message forever.
+          setColor(msg.color, false);
         }
         break;
 
@@ -748,15 +775,19 @@
   }
 
   // Overlay rendering
-  function displayVerse(payload, theme, animation) {
+  let displayTimer = null;
+
+  function displayVerse(payload, theme, animation, startIndex = 0) {
     currentPayload = payload;
-    currentSlideIndex = 0;
+    const total = Array.isArray(payload.slides) && payload.slides.length ? payload.slides.length : 1;
+    currentSlideIndex = Math.max(0, Math.min(startIndex, total - 1));
     if (theme) currentTheme = theme;
     if (animation) currentAnimation = animation;
 
     hideOverlay(true);
-    setTimeout(() => {
-      overlayElement = buildTheme(currentTheme, payload, 0);
+    displayTimer = setTimeout(() => {
+      displayTimer = null;
+      overlayElement = buildTheme(currentTheme, payload, currentSlideIndex);
       if (overlayElement) {
         overlayElement.classList.add(`anim-${currentAnimation}`);
         overlayElement.classList.add('overlay-hidden');
@@ -770,22 +801,42 @@
     }, 50);
   }
 
+  // Hide AND forget the verse — used when the operator hides the overlay,
+  // so a later theme switch can't resurrect it onto the live feed.
+  function clearLive() {
+    currentPayload = null;
+    currentSlideIndex = 0;
+    hideOverlay();
+  }
+
   function hideOverlay(instant = false) {
-    clearAutoAdvance();
+    // Cancel any queued display/transition so rapid go-live/hide sequences
+    // can't stack elements or rebuild against cleared state
+    if (displayTimer) {
+      clearTimeout(displayTimer);
+      displayTimer = null;
+    }
+    if (transitionTimer) {
+      clearTimeout(transitionTimer);
+      transitionTimer = null;
+    }
     if (overlayElement) {
       if (instant) {
         overlayElement.remove();
         overlayElement = null;
       } else {
-        overlayElement.classList.add('overlay-hidden');
+        // Capture the element: by the time this timer fires, a new verse may
+        // already be live in overlayElement — removing "whatever is current"
+        // would blank it.
+        const el = overlayElement;
+        el.classList.add('overlay-hidden');
         setTimeout(() => {
-          if (overlayElement) {
-            overlayElement.remove();
-            overlayElement = null;
-          }
+          el.remove();
+          if (overlayElement === el) overlayElement = null;
         }, 600);
       }
     }
+    document.body.classList.remove('ticker-active');
   }
 
   function buildTheme(theme, payload, slideIndex) {
@@ -793,6 +844,10 @@
     const currentSlide = slides[slideIndex] || payload.fullText || '';
     const ref = payload.reference || '';
     const tr = payload.translationName || payload.translationId || '';
+
+    // Let CSS on body react to the active theme (e.g. hide branding that
+    // would overlap the full-width ticker).
+    document.body.classList.toggle('ticker-active', theme === 'ticker');
 
     switch (theme) {
       case 'glass-lower': return buildGlassLower(currentSlide, ref, tr, slideIndex, slides.length);
@@ -881,6 +936,7 @@
     el.className = 'theme-ticker';
     const repeated = `${text} | ${text} | ${text} | `;
     el.innerHTML = `<div class="ticker-track">${sanitizeHtmlBasicFormatting(repeated)}</div>`;
+    el.querySelector('.ticker-track').style.animationDuration = `${tickerSpeed}s`;
     return el;
   }
 
@@ -902,8 +958,12 @@
   }
   function transitionSlide() {
     if (!overlayElement || !currentPayload) return;
+    if (transitionTimer) clearTimeout(transitionTimer);
     overlayElement.classList.add('overlay-hidden');
-    setTimeout(() => {
+    transitionTimer = setTimeout(() => {
+      transitionTimer = null;
+      // Re-check: a hide may have landed during the 300ms fade
+      if (!currentPayload) return;
       if (overlayElement) overlayElement.remove();
       overlayElement = buildTheme(currentTheme, currentPayload, currentSlideIndex);
       if (overlayElement) {
@@ -918,20 +978,15 @@
       }
     }, 300);
   }
-  function clearAutoAdvance() {
-    if (autoAdvanceTimer) {
-      clearTimeout(autoAdvanceTimer);
-      autoAdvanceTimer = null;
-    }
-  }
 
   // Ticker
   function handleTicker(msg) {
     if (msg.action === 'start') {
+      tickerSpeed = Number(msg.speed) > 0 ? Number(msg.speed) : 30;
       const payload = { fullText: msg.text, reference: '', translationName: '' };
       displayVerse(payload, 'ticker', 'fade');
     } else if (msg.action === 'stop') {
-      hideOverlay();
+      clearLive();
     }
   }
 
@@ -947,18 +1002,12 @@
     return html;
   }
 
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text || '';
-    return div.innerHTML;
-  }
-
   // Keyboard shortcuts when testing in a browser
   if (window.self === window.top) {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowRight') nextSlide();
       if (e.key === 'ArrowLeft') previousSlide();
-      if (e.key === 'Escape') hideOverlay();
+      if (e.key === 'Escape') clearLive();
       if (e.key === 'Delete' && selectedObject) {
         eraseObject(selectedObject);
         selectedObject = null;
@@ -1093,8 +1142,8 @@
       try { ws.send(JSON.stringify({ type: 'disableDrawing' })); } catch {}
     });
 
-    // Default selections
-    setColor('#ffff00');
+    // Default selections (local only — don't broadcast on startup)
+    setColor('#ffff00', false);
 
     // Draggable toolbar
     makeToolbarDraggable();
@@ -1107,10 +1156,12 @@
     }
   }
 
-  function setColor(hex) {
+  function setColor(hex, broadcast = true) {
     currentDrawColor = hex;
     colorButtons.forEach(b => b.classList.toggle('active', (b.dataset.color || '').toLowerCase() === hex.toLowerCase()));
-    try { ws.send(JSON.stringify({ type: 'setDrawColor', color: currentDrawColor })); } catch {}
+    if (broadcast) {
+      try { ws.send(JSON.stringify({ type: 'setDrawColor', color: currentDrawColor })); } catch {}
+    }
   }
 
   function makeToolbarDraggable() {
@@ -1166,6 +1217,9 @@
     drawingToolbar.style.bottom = 'auto';
     drawingToolbar.style.transform = 'none';
     drawingToolbar.style.position = 'fixed';
+    // Opts out of the reduced-motion translateX(-50%) centering override,
+    // which would otherwise shift an explicitly positioned toolbar.
+    drawingToolbar.classList.add('toolbar-positioned');
   }
 
   function saveToolbarPos(left, top) {

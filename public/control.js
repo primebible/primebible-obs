@@ -22,11 +22,103 @@
   let verseFontSize = parseInt(localStorage.getItem('primebible-verse-size') || '100');
   let referenceFontSize = parseInt(localStorage.getItem('primebible-ref-size') || '100');
 
-  // WebSocket
-  const wsUrl = `${location.origin.replace('http', 'ws')}/?role=control`;
-  let ws = new WebSocket(wsUrl);
-  let reconnectAttempts = 0;
-  const maxReconnectAttempts = 10;
+  // Optional PIN (remotePin in config.json). Accept it from the page URL
+  // (?pin=1234), remember it, and prompt if the server rejects us.
+  const urlPin = new URLSearchParams(location.search).get('pin');
+  if (urlPin) localStorage.setItem('primebible-pin', urlPin);
+  let pin = urlPin || localStorage.getItem('primebible-pin') || '';
+
+  function buildWsUrl() {
+    const base = `${location.origin.replace('http', 'ws')}/?role=control`;
+    return pin ? `${base}&pin=${encodeURIComponent(pin)}` : base;
+  }
+
+  // WebSocket — retries forever with capped backoff
+  let ws = null;
+  let reconnectDelay = 1000;
+
+  function connectWebSocket() {
+    ws = new WebSocket(buildWsUrl());
+
+    ws.addEventListener('open', () => {
+      console.log('[Control] Connected');
+      wsConnected = true;
+      reconnectDelay = 1000;
+      updateConnectionStatus();
+    });
+
+    ws.addEventListener('close', (event) => {
+      console.log('[Control] Disconnected');
+      wsConnected = false;
+      updateConnectionStatus();
+
+      if (event.code === 4001) {
+        // Server requires a PIN (or ours is wrong). Note: prompt() is dead
+        // inside an OBS custom browser dock — it returns null immediately —
+        // so always leave a visible hint about the ?pin= URL workaround.
+        const entered = prompt('This server requires a PIN. Enter the remote PIN:');
+        if (entered !== null && entered.trim()) {
+          pin = entered.trim();
+          localStorage.setItem('primebible-pin', pin);
+          connectWebSocket();
+        } else {
+          els.liveStatus.innerHTML = '<span style="color: var(--danger); font-weight: 600;">🔒 PIN required — open this page with ?pin=YOUR_PIN</span>';
+          console.warn('[Control] PIN required. Open the page with ?pin=YOUR_PIN or reload to try again.');
+        }
+        return;
+      }
+
+      setTimeout(connectWebSocket, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
+    });
+
+    ws.addEventListener('error', () => {});
+
+    ws.addEventListener('message', (event) => {
+      try {
+        handleMessage(JSON.parse(event.data));
+      } catch (e) {
+        console.error('[Control] Message error:', e);
+      }
+    });
+  }
+
+  // Send only when actually connected; returns whether the message went out
+  // so callers can give honest feedback instead of a false "LIVE"/"Applied".
+  function wsSend(obj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      ws.send(JSON.stringify(obj));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // API fetch that carries the PIN for mutating endpoints
+  function apiFetch(url, options = {}) {
+    if (pin) {
+      options.headers = { ...(options.headers || {}), 'x-remote-pin': pin };
+    }
+    return fetch(url, options);
+  }
+
+  // Mutating API call with honest failure handling: returns the parsed JSON
+  // on success, null on any failure (401, network, server error) — so
+  // callers never falsify local state after a failed request.
+  async function apiCall(url, options = {}) {
+    try {
+      const res = await apiFetch(url, options);
+      if (res.status === 401) {
+        alert('This server requires a PIN for changes. Reload the page and enter the PIN, or open the page with ?pin=YOUR_PIN.');
+        return null;
+      }
+      if (!res.ok) return null;
+      return await res.json().catch(() => ({}));
+    } catch {
+      return null;
+    }
+  }
 
   // Elements
   const els = {
@@ -124,7 +216,9 @@
   }
 
   function hexToRgb(hex) {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    let h = (hex || '').replace(/^#/, '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    const result = /^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h);
     return result ? {
       r: parseInt(result[1], 16),
       g: parseInt(result[2], 16),
@@ -150,55 +244,32 @@
 
   els.applyBgBtn.addEventListener('click', () => {
     const alpha = bgTransparency / 100;
-    
+
     // Save to localStorage
     localStorage.setItem('primebible-bg-color', bgColor);
     localStorage.setItem('primebible-bg-transparency', bgTransparency);
     localStorage.setItem('primebible-bg-solid', solidBackground ? 'true' : 'false');
-    
-    ws.send(JSON.stringify({
+
+    const sent = wsSend({
       type: 'setBackground',
       color: bgColor,
       transparency: alpha,
       solidBackground: solidBackground
-    }));
+    });
 
     // Visual feedback
-    els.applyBgBtn.innerHTML = '<span>✓ Applied!</span>';
+    els.applyBgBtn.innerHTML = sent ? '<span>✓ Applied!</span>' : '<span>⚠️ Not connected</span>';
     setTimeout(() => {
       els.applyBgBtn.innerHTML = '<span>Apply Background</span>';
     }, 2000);
   });
 
   els.forceRefreshBtn.addEventListener('click', () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // The reloaded overlay gets styling and the live verse replayed by the
+    // server on reconnect, so a bare refresh is all that's needed.
+    const sent = wsSend({ type: 'forceRefresh' });
 
-    ws.send(JSON.stringify({
-      type: 'forceRefresh'
-    }));
-
-    setTimeout(() => {
-      ws.send(JSON.stringify({
-        type: 'setBackground',
-        color: bgColor,
-        transparency: bgTransparency / 100,
-        solidBackground: solidBackground
-      }));
-
-      ws.send(JSON.stringify({
-        type: 'setFonts',
-        verseFont: verseFont,
-        referenceFont: referenceFont
-      }));
-
-      ws.send(JSON.stringify({
-        type: 'setFontSizes',
-        verseSize: verseFontSize / 100,
-        referenceSize: referenceFontSize / 100
-      }));
-    }, 100);
-
-    els.forceRefreshBtn.innerHTML = '<span>✓ Refreshed!</span>';
+    els.forceRefreshBtn.innerHTML = sent ? '<span>✓ Refreshed!</span>' : '<span>⚠️ Not connected</span>';
     setTimeout(() => {
       els.forceRefreshBtn.innerHTML = '<span>🔄 Force Refresh OBS Overlay</span>';
     }, 2000);
@@ -219,15 +290,15 @@
     // Save to localStorage
     localStorage.setItem('primebible-verse-font', verseFont);
     localStorage.setItem('primebible-ref-font', referenceFont);
-    
-    ws.send(JSON.stringify({
+
+    const sent = wsSend({
       type: 'setFonts',
       verseFont: verseFont,
       referenceFont: referenceFont
-    }));
+    });
 
     // Visual feedback
-    els.applyFontsBtn.innerHTML = '<span>✓ Applied!</span>';
+    els.applyFontsBtn.innerHTML = sent ? '<span>✓ Applied!</span>' : '<span>⚠️ Not connected</span>';
     setTimeout(() => {
       els.applyFontsBtn.innerHTML = '<span>Apply Fonts</span>';
     }, 2000);
@@ -250,15 +321,15 @@
     // Save to localStorage
     localStorage.setItem('primebible-verse-size', verseFontSize);
     localStorage.setItem('primebible-ref-size', referenceFontSize);
-    
-    ws.send(JSON.stringify({
+
+    const sent = wsSend({
       type: 'setFontSizes',
       verseSize: verseFontSize / 100,
       referenceSize: referenceFontSize / 100
-    }));
+    });
 
     // Visual feedback
-    els.applySizesBtn.innerHTML = '<span>✓ Applied!</span>';
+    els.applySizesBtn.innerHTML = sent ? '<span>✓ Applied!</span>' : '<span>⚠️ Not connected</span>';
     setTimeout(() => {
       els.applySizesBtn.innerHTML = '<span>Apply Font Sizes</span>';
     }, 2000);
@@ -270,89 +341,54 @@
   els.verseSizeValue.textContent = `${verseFontSize}%`;
   els.referenceSizeValue.textContent = `${referenceFontSize}%`;
 
-  // Apply saved settings on connection
-  function applyStoredSettings() {
-    if (!wsConnected) return;
-    
-    // Apply background
-    ws.send(JSON.stringify({
-      type: 'setBackground',
-      color: bgColor,
-      transparency: bgTransparency / 100,
-      solidBackground: solidBackground
-    }));
-    
-    // Apply fonts
-    ws.send(JSON.stringify({
-      type: 'setFonts',
-      verseFont: verseFont,
-      referenceFont: referenceFont
-    }));
-    
-    // Apply sizes
-    ws.send(JSON.stringify({
-      type: 'setFontSizes',
-      verseSize: verseFontSize / 100,
-      referenceSize: referenceFontSize / 100
-    }));
+  // Populate a <select> from the server's option list. On the first hello the
+  // markup value is just a placeholder, so the server default wins; on
+  // reconnects the user's current choice is preserved.
+  let selectsInitialized = false;
+
+  function populateSelect(select, options, preferred) {
+    const previous = select.value;
+    select.innerHTML = options.map(o =>
+      `<option value="${escapeAttr(o.value)}">${escapeAttr(o.label)}</option>`
+    ).join('');
+    const values = options.map(o => o.value);
+    if (selectsInitialized && values.includes(previous)) select.value = previous;
+    else if (preferred && values.includes(preferred)) select.value = preferred;
+    else if (values.includes(previous)) select.value = previous;
   }
 
-  // WebSocket handlers
-  ws.addEventListener('open', () => {
-    console.log('[Control] Connected');
-    wsConnected = true;
-    reconnectAttempts = 0;
-    updateConnectionStatus();
-    
-    // Apply stored settings after connection
-    setTimeout(applyStoredSettings, 100);
-  });
+  // Adopt the server-persisted overlay styling so opening a control tab
+  // never clobbers what another operator tuned mid-stream.
+  function adoptCustomizations(c) {
+    if (!c) return;
+    if (typeof c.bgColor === 'string') bgColor = c.bgColor;
+    if (typeof c.bgTransparency === 'number') bgTransparency = Math.round(c.bgTransparency * 100);
+    if (typeof c.solidBackground === 'boolean') solidBackground = c.solidBackground;
+    if (typeof c.verseFont === 'string') verseFont = c.verseFont;
+    if (typeof c.referenceFont === 'string') referenceFont = c.referenceFont;
+    if (typeof c.verseSize === 'number') verseFontSize = Math.round(c.verseSize * 100);
+    if (typeof c.referenceSize === 'number') referenceFontSize = Math.round(c.referenceSize * 100);
 
-  ws.addEventListener('close', () => {
-    console.log('[Control] Disconnected');
-    wsConnected = false;
-    updateConnectionStatus();
-    // Attempt reconnect with exponential backoff
-    if (reconnectAttempts < maxReconnectAttempts) {
-      const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts), 30000);
-      setTimeout(() => {
-        reconnectAttempts++;
-        ws = new WebSocket(wsUrl);
-        setupWebSocket();
-      }, delay);
-    }
-  });
+    els.bgColorPicker.value = bgColor;
+    els.transparencySlider.value = bgTransparency;
+    if (els.solidBgCheckbox) els.solidBgCheckbox.checked = solidBackground;
+    els.verseFontSelect.value = verseFont;
+    els.referenceFontSelect.value = referenceFont;
+    els.verseSizeSlider.value = verseFontSize;
+    els.referenceSizeSlider.value = referenceFontSize;
+    els.verseSizeValue.textContent = `${verseFontSize}%`;
+    els.referenceSizeValue.textContent = `${referenceFontSize}%`;
+    updateBgPreview();
+    updateFontPreview();
 
-  ws.addEventListener('message', (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      handleMessage(msg);
-    } catch (e) {
-      console.error('[Control] Message error:', e);
-    }
-  });
-
-  function setupWebSocket() {
-    ws.addEventListener('open', () => {
-      wsConnected = true;
-      reconnectAttempts = 0;
-      updateConnectionStatus();
-      setTimeout(applyStoredSettings, 100);
-    });
-    
-    ws.addEventListener('close', () => {
-      wsConnected = false;
-      updateConnectionStatus();
-    });
-    
-    ws.addEventListener('message', (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        handleMessage(msg);
-      } catch (e) {
-        console.error('[Control] Message parse error:', e);
-      }
-    });
+    // Keep localStorage in sync so the next page load doesn't flash stale UI
+    localStorage.setItem('primebible-bg-color', bgColor);
+    localStorage.setItem('primebible-bg-transparency', bgTransparency);
+    localStorage.setItem('primebible-bg-solid', solidBackground ? 'true' : 'false');
+    localStorage.setItem('primebible-verse-font', verseFont);
+    localStorage.setItem('primebible-ref-font', referenceFont);
+    localStorage.setItem('primebible-verse-size', verseFontSize);
+    localStorage.setItem('primebible-ref-size', referenceFontSize);
   }
 
   function handleMessage(msg) {
@@ -361,7 +397,36 @@
         if (msg.history) history = msg.history;
         if (msg.favorites) favorites = msg.favorites;
         if (msg.servicePlan) servicePlan = msg.servicePlan;
-        obsConnected = msg.config?.obsConnected || false;
+        obsConnected = !!msg.obsConnected;
+        if (msg.config) {
+          if (Array.isArray(msg.config.translations) && msg.config.translations.length) {
+            populateSelect(
+              els.translationSelect,
+              msg.config.translations.map(t => ({ value: String(t).toLowerCase(), label: String(t).toUpperCase() })),
+              String(msg.config.defaultTranslation || '').toLowerCase()
+            );
+          }
+          if (Array.isArray(msg.config.themes) && msg.config.themes.length) {
+            populateSelect(
+              els.themeSelect,
+              msg.config.themes.map(t => ({ value: t.id, label: t.name })),
+              msg.config.defaultTheme
+            );
+          }
+          if (Array.isArray(msg.config.animations) && msg.config.animations.length) {
+            populateSelect(
+              els.animationSelect,
+              msg.config.animations.map(a => ({ value: a.id, label: a.name })),
+              msg.config.defaultAnimation
+            );
+          }
+          selectsInitialized = true;
+        }
+        adoptCustomizations(msg.customizations);
+        // Surface what's already on air (e.g. after a mid-service page reload)
+        if (msg.currentLive && msg.currentLive.payload) {
+          els.liveStatus.innerHTML = `<span class="live-indicator"><span class="live-dot"></span> On air: ${sanitizeHtmlBasicFormatting(msg.currentLive.payload.reference || '')}</span>`;
+        }
         renderAll();
         break;
 
@@ -375,6 +440,11 @@
 
       case 'historyUpdated':
         if (msg.history) history = msg.history;
+        renderHistory();
+        break;
+
+      case 'historyCleared':
+        history = [];
         renderHistory();
         break;
 
@@ -428,7 +498,9 @@
     els.fetchBtn.innerHTML = '<span class="animate-spin">⏳</span> <span>Fetching...</span>';
 
     try {
-      const response = await fetch(`/api/verse?ref=${encodeURIComponent(ref)}&translation=${encodeURIComponent(translation)}`);
+      // apiFetch so the PIN header rides along — the server only records
+      // history for authenticated fetches when a PIN is set
+      const response = await apiFetch(`/api/verse?ref=${encodeURIComponent(ref)}&translation=${encodeURIComponent(translation)}`);
       const json = await response.json();
 
       if (json.ok) {
@@ -439,11 +511,11 @@
         els.addFavoriteBtn.disabled = false;
       } else {
         showError(json.error || 'Failed to fetch verse');
-        els.goLiveBtn.disabled = true;
+        clearCurrentVerse();
       }
     } catch (error) {
       showError(String(error));
-      els.goLiveBtn.disabled = true;
+      clearCurrentVerse();
     } finally {
       els.fetchBtn.disabled = false;
       els.fetchBtn.innerHTML = '<span>Fetch Verse</span>';
@@ -480,6 +552,15 @@
     els.preview.classList.add('has-content');
   }
 
+  // A failed fetch must not leave the previous verse armed behind an error
+  // preview — Enter/Go Live would silently show stale content.
+  function clearCurrentVerse() {
+    currentVerse = null;
+    els.goLiveBtn.disabled = true;
+    els.addToPlanBtn.disabled = true;
+    els.addFavoriteBtn.disabled = true;
+  }
+
   // Go live
   els.goLiveBtn.addEventListener('click', goLive);
 
@@ -489,15 +570,17 @@
     const theme = els.themeSelect.value;
     const animation = els.animationSelect.value;
 
-    ws.send(JSON.stringify({
+    const sent = wsSend({
       type: 'goLive',
       payload: currentVerse,
       theme,
       animation,
       autoShowOverlay: obsConnected
-    }));
+    });
 
-    els.liveStatus.innerHTML = '<span class="live-indicator"><span class="live-dot"></span> LIVE</span>';
+    els.liveStatus.innerHTML = sent
+      ? '<span class="live-indicator"><span class="live-dot"></span> LIVE</span>'
+      : '<span style="color: var(--danger); font-weight: 600;">⚠️ Not connected — nothing sent</span>';
     setTimeout(() => {
       els.liveStatus.innerHTML = '';
     }, 3000);
@@ -505,26 +588,28 @@
 
   // Hide overlay
   els.hideBtn.addEventListener('click', () => {
-    ws.send(JSON.stringify({ type: 'hideOverlay' }));
+    if (wsSend({ type: 'hideOverlay' })) {
+      els.liveStatus.innerHTML = '';
+    }
   });
 
   // Slide navigation
   els.nextSlideBtn.addEventListener('click', () => {
-    ws.send(JSON.stringify({ type: 'nextSlide' }));
+    wsSend({ type: 'nextSlide' });
   });
 
   els.prevSlideBtn.addEventListener('click', () => {
-    ws.send(JSON.stringify({ type: 'previousSlide' }));
+    wsSend({ type: 'previousSlide' });
   });
 
-  // History
+  // History (server sends newest-first; render in that order)
   function renderHistory() {
     if (history.length === 0) {
       els.history.innerHTML = '<div class="text-muted text-center" style="padding: var(--space-lg);">No history yet</div>';
       return;
     }
 
-    els.history.innerHTML = history.slice().reverse().map(item => `
+    els.history.innerHTML = history.map(item => `
       <div class="history-item" data-ref="${escapeAttr(item.reference)}" data-translation="${escapeAttr(item.translationId)}">
         <div class="item-title">
           <span>${sanitizeHtmlBasicFormatting(item.reference)}</span>
@@ -546,9 +631,11 @@
 
   els.clearHistoryBtn.addEventListener('click', async () => {
     if (!confirm('Clear all history?')) return;
-    await fetch('/api/history', { method: 'DELETE' });
-    history = [];
-    renderHistory();
+    const ok = await apiCall('/api/history', { method: 'DELETE' });
+    if (ok) {
+      history = [];
+      renderHistory();
+    }
   });
 
   // Favorites
@@ -559,14 +646,18 @@
     }
 
     els.favorites.innerHTML = favorites.map(key => {
-      const [ref, translation] = key.split(':');
+      // Keys are "<reference>:<translation>" and references contain colons
+      // ("John 3:16:kjv"), so split on the LAST colon only.
+      const sep = key.lastIndexOf(':');
+      const ref = sep > 0 ? key.slice(0, sep) : key;
+      const translation = sep > 0 ? key.slice(sep + 1) : '';
       return `
-        <div class="favorite-item" data-ref="${escapeAttr(ref)}" data-translation="${escapeAttr(translation)}">
+        <div class="favorite-item" data-key="${escapeAttr(key)}" data-ref="${escapeAttr(ref)}" data-translation="${escapeAttr(translation)}">
           <div class="item-title">
             <span>${sanitizeHtmlBasicFormatting(ref)}</span>
             <div>
               <span class="badge">${sanitizeHtmlBasicFormatting(translation.toUpperCase())}</span>
-              <button class="btn btn-sm btn-ghost" onclick="removeFavorite('${escapeAttr(key)}')">×</button>
+              <button class="btn btn-sm btn-ghost" title="Remove favorite">×</button>
             </div>
           </div>
         </div>
@@ -575,7 +666,10 @@
 
     els.favorites.querySelectorAll('.favorite-item').forEach(el => {
       el.addEventListener('click', (e) => {
-        if (e.target.tagName === 'BUTTON') return;
+        if (e.target.tagName === 'BUTTON') {
+          removeFavorite(el.dataset.key);
+          return;
+        }
         els.refInput.value = el.dataset.ref;
         els.translationSelect.value = el.dataset.translation;
         fetchVerse();
@@ -585,8 +679,9 @@
 
   els.addFavoriteBtn.addEventListener('click', async () => {
     if (!currentVerse) return;
-    
-    await fetch('/api/favorites', {
+
+    // On success the server broadcasts favoritesUpdated, which re-renders
+    await apiCall('/api/favorites', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -596,9 +691,9 @@
     });
   });
 
-  window.removeFavorite = async (key) => {
-    await fetch(`/api/favorites/${encodeURIComponent(key)}`, { method: 'DELETE' });
-  };
+  async function removeFavorite(key) {
+    await apiCall(`/api/favorites/${encodeURIComponent(key)}`, { method: 'DELETE' });
+  }
 
   // Service Plan
   function renderServicePlan() {
@@ -613,7 +708,7 @@
           <span>${sanitizeHtmlBasicFormatting(item.reference)}</span>
           <div>
             <span class="badge">${sanitizeHtmlBasicFormatting(item.translationName || item.translationId)}</span>
-            <button class="btn btn-sm btn-ghost" onclick="removePlanItem(${index})">×</button>
+            <button class="btn btn-sm btn-ghost" title="Remove from plan">×</button>
           </div>
         </div>
       </div>
@@ -621,44 +716,62 @@
 
     els.servicePlan.querySelectorAll('.plan-item').forEach(el => {
       el.addEventListener('click', (e) => {
-        if (e.target.tagName === 'BUTTON') return;
         const index = parseInt(el.dataset.index);
+        if (e.target.tagName === 'BUTTON') {
+          removePlanItem(index);
+          return;
+        }
         currentVerse = servicePlan[index];
         renderPreview(currentVerse);
         els.goLiveBtn.disabled = false;
+        els.addToPlanBtn.disabled = false;
+        els.addFavoriteBtn.disabled = false;
       });
     });
   }
 
   els.addToPlanBtn.addEventListener('click', async () => {
     if (!currentVerse) return;
-    
+
     servicePlan.push(currentVerse);
-    await fetch('/api/service-plan', {
+    const ok = await apiCall('/api/service-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan: servicePlan })
     });
+    if (!ok) {
+      // Roll back so a failed POST can't leave a phantom item that a later
+      // successful save would silently persist
+      servicePlan.pop();
+      renderServicePlan();
+    }
   });
 
   els.clearPlanBtn.addEventListener('click', async () => {
     if (!confirm('Clear service plan?')) return;
-    servicePlan = [];
-    await fetch('/api/service-plan', {
+    const ok = await apiCall('/api/service-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan: [] })
     });
+    if (ok) {
+      servicePlan = [];
+      renderServicePlan();
+    }
   });
 
-  window.removePlanItem = async (index) => {
-    servicePlan.splice(index, 1);
-    await fetch('/api/service-plan', {
+  async function removePlanItem(index) {
+    const removed = servicePlan.splice(index, 1)[0];
+    const ok = await apiCall('/api/service-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan: servicePlan })
     });
-  };
+    if (!ok && removed) {
+      servicePlan.splice(index, 0, removed);
+      renderServicePlan();
+    }
+  }
 
   // OBS Integration
   els.obsConnectBtn.addEventListener('click', async () => {
@@ -666,7 +779,7 @@
     els.obsConnectBtn.innerHTML = '<span>Connecting...</span>';
 
     try {
-      const response = await fetch('/api/obs/connect', {
+      const response = await apiFetch('/api/obs/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -698,7 +811,7 @@
 
     try {
       const theme = els.themeSelect.value;
-      const response = await fetch('/api/obs/ensure-overlay', {
+      const response = await apiFetch('/api/obs/ensure-overlay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ theme })
@@ -737,19 +850,19 @@
 
   if (els.enableDrawingBtn) {
     els.enableDrawingBtn.addEventListener('click', () => {
-      ws.send(JSON.stringify({ type: 'enableDrawing' }));
+      wsSend({ type: 'enableDrawing' });
     });
   }
 
   if (els.disableDrawingBtn) {
     els.disableDrawingBtn.addEventListener('click', () => {
-      ws.send(JSON.stringify({ type: 'disableDrawing' }));
+      wsSend({ type: 'disableDrawing' });
     });
   }
 
   if (els.clearDrawingBtn) {
     els.clearDrawingBtn.addEventListener('click', () => {
-      ws.send(JSON.stringify({ type: 'clearDrawing' }));
+      wsSend({ type: 'clearDrawing' });
     });
   }
 
@@ -757,10 +870,10 @@
   if (remoteColorButtons.length) {
     remoteColorButtons.forEach((btn) => {
       btn.addEventListener('click', () => {
-        ws.send(JSON.stringify({
+        wsSend({
           type: 'setDrawColor',
           color: btn.dataset.remoteColor
-        }));
+        });
       });
     });
   }
@@ -773,13 +886,18 @@
     }
 
     if (e.key === 'Enter') {
+      // preventDefault stops a focused button from ALSO activating,
+      // which would double-fire (e.g. re-fetch after "Fetch Verse")
+      e.preventDefault();
       if (currentVerse) goLive();
     } else if (e.key === 'Escape') {
-      ws.send(JSON.stringify({ type: 'hideOverlay' }));
+      if (wsSend({ type: 'hideOverlay' })) {
+        els.liveStatus.innerHTML = '';
+      }
     } else if (e.key === 'ArrowRight') {
-      ws.send(JSON.stringify({ type: 'nextSlide' }));
+      wsSend({ type: 'nextSlide' });
     } else if (e.key === 'ArrowLeft') {
-      ws.send(JSON.stringify({ type: 'previousSlide' }));
+      wsSend({ type: 'previousSlide' });
     }
   });
 
@@ -795,14 +913,13 @@
     return html;
   }
 
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text || '';
-    return div.innerHTML;
-  }
-
   function escapeAttr(text) {
-    return (text || '').replace(/"/g, '&quot;');
+    return (text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   function renderAll() {
@@ -813,8 +930,9 @@
   }
 
   // Initialize
+  connectWebSocket();
   loadQRCode();
   updateConnectionStatus();
-  
-  console.log('[Control] Ready v2.1');
+
+  console.log('[Control] Ready v2.2');
 })();

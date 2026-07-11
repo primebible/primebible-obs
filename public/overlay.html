@@ -127,6 +127,17 @@
       bottom: var(--safe-area-bottom, 0px);
     }
 
+    .safe-area-applied .theme-corner-card {
+      bottom: calc(4vh + var(--safe-area-bottom, 0px));
+    }
+
+    .safe-area-applied .theme-minimal-center,
+    .safe-area-applied .theme-full-screen,
+    .safe-area-applied .theme-split-side {
+      top: var(--safe-area-top, 0px);
+      bottom: var(--safe-area-bottom, 0px);
+    }
+
     /* High contrast mode */
     .high-contrast .glass-lower-content {
       background: rgba(0, 0, 0, 0.95);
@@ -467,13 +478,15 @@
       letter-spacing: -0.01em;
     }
 
-    /* Hide branding on ticker theme (conflicts with position) */
-    .theme-ticker ~ .primebible-branding {
+    /* Hide branding on ticker theme (conflicts with position).
+       Toggled via a body class since themes live inside #root while the
+       branding is #root's sibling — a sibling combinator can't reach it. */
+    body.ticker-active .primebible-branding {
       display: none;
     }
 
-    /* Adjust for safe areas */
-    .safe-area-applied .primebible-branding {
+    /* Adjust for safe areas (body carries the class too) */
+    body.safe-area-applied .primebible-branding {
       bottom: calc(clamp(8px, 1vh, 16px) + var(--safe-area-bottom, 0px));
     }
 
@@ -532,6 +545,21 @@
         transition: opacity 250ms ease !important;
         animation: none !important;
         transform: none !important;
+      }
+
+      /* The ticker relies on its animation to scroll into view; without it,
+         padding-left: 100% leaves the text permanently off-screen. Show it
+         statically instead. */
+      .ticker-track {
+        padding-left: 2vw !important;
+      }
+
+      /* The toolbar is centered via translateX(-50%); restore it so the
+         blanket transform reset doesn't shift it half its width right.
+         Once dragged (.toolbar-positioned), it's positioned via left/top
+         with transform:none — leave that alone. */
+      .drawing-toolbar:not(.toolbar-positioned) {
+        transform: translateX(-50%) !important;
       }
     }
 

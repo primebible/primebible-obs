@@ -53,13 +53,12 @@ Scan the QR code in the Control panel to access the remote on your phone!
   - Fetch verses ahead of time
   - Add them to your plan
   - Click to instantly load during service
- 
-  - - **Using Annotation Tools:**
-    -   - In OBS, add the control as a Browser source (http://localhost:4456/control)
-        -   - Right-click the Browser source → **Order → Move to Top** to set as overlay
-            -   - Right-click the Browser source → **Interact...**
-                -   - **IMPORTANT:** Click the **Enable button** on the annotation tools in the control panel
-                    -   - You can now annotate directly over your overlay!
+- **Using Annotation Tools:**
+  1. In OBS, add the control as a Browser source (http://localhost:4456/control)
+  2. Right-click the Browser source → **Order → Move to Top** to set as overlay
+  3. Right-click the Browser source → **Interact...**
+  4. **IMPORTANT:** Click the **Enable button** on the annotation tools in the control panel
+  5. You can now annotate directly over your overlay!
 
 That's it! You're ready to go. 🌟
 

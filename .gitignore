@@ -2,6 +2,12 @@
 node_modules/
 package-lock.json
 
+# Runtime data (history, favorites, service plans — recreated automatically)
+data/
+
+# Local tooling
+.claude/
+
 # Environment
 .env
 .env.local

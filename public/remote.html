@@ -204,12 +204,13 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
           <div>
             <label class="label">Translation</label>
+            <!-- Fallback options match the server's default allowlist;
+                 replaced with the live list from the server on connect -->
             <select id="translationSelect" class="large-select">
               <option value="kjv">KJV</option>
-              <option value="niv">NIV</option>
-              <option value="esv">ESV</option>
-              <option value="nlt">NLT</option>
+              <option value="akjv">AKJV</option>
               <option value="web">WEB</option>
+              <option value="asv">ASV</option>
             </select>
           </div>
           <div>
@@ -218,7 +219,9 @@
               <option value="glass-lower">Glass Lower</option>
               <option value="minimal-center">Minimal</option>
               <option value="full-screen">Full Screen</option>
+              <option value="split-side">Split Side</option>
               <option value="corner-card">Corner</option>
+              <option value="ticker">Ticker</option>
             </select>
           </div>
         </div>
