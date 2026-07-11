@@ -282,7 +282,7 @@ app.use('/api', (req, res, next) => {
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
-    version: '2.0.0',
+    version: '2.2.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     connections: {
@@ -1015,7 +1015,7 @@ async function fetchFromPrimeBible(ref, translation) {
     const response = await fetch(urlObj.toString(), {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'PrimeBible-OBS/2.0.0'
+        'User-Agent': 'PrimeBible-OBS/2.2.0'
       },
       signal: controller.signal
     });

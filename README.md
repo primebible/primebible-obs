@@ -13,7 +13,7 @@
 
 **Professional Bible Overlay System for Live Streaming**
 
-[![Version](https://img.shields.io/badge/version-2.0-blue)](https://github.com/primebible/primebible-obs)
+[![Version](https://img.shields.io/badge/version-2.2-blue)](https://github.com/primebible/primebible-obs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 [![OBS Studio](https://img.shields.io/badge/OBS%20Studio-28%2B-blueviolet)](https://obsproject.com/)
@@ -718,7 +718,7 @@ PrimeBible OBS is 100% free and open source. If this project has blessed your mi
 
 ## 🚀 Roadmap
 
-### Version 2.1 (Planned)
+### Version 2.3 (Planned)
 - [ ] Additional overlay themes (Neon, Classic, Minimal Modern)
 - [ ] Typewriter animation
 - [ ] Voice-activated verse detection (experimental build ships in `public/voice-*`)
@@ -727,7 +727,7 @@ PrimeBible OBS is 100% free and open source. If this project has blessed your mi
 - [ ] Hotkey support for physical stream deck integration
 - [ ] Enhanced stage display with speaker notes
 
-### Version 2.2 (Future)
+### Future
 - [ ] Cloud sync for service plans
 - [ ] Collaborative remote control (multiple devices)
 - [ ] Custom theme builder with visual editor
