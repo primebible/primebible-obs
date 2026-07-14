@@ -4,16 +4,16 @@
 
 <div align="center">
 
-[![GitHub stars](https://img.shields.io/github/stars/primebible/primebible-obs?style=social)](https://github.com/primebible/primebible-obs/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/primebible/primebible-obs?style=social)](https://github.com/primebible/primebible-obs/network/members)
-[![GitHub issues](https://img.shields.io/github/issues/primebible/primebible-obs)](https://github.com/primebible/primebible-obs/issues)
-[![License](https://img.shields.io/github/license/primebible/primebible-obs)](https://github.com/primebible/primebible-obs/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/primebible/primebible-for-obs?style=social)](https://github.com/primebible/primebible-for-obs/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/primebible/primebible-for-obs?style=social)](https://github.com/primebible/primebible-for-obs/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/primebible/primebible-for-obs)](https://github.com/primebible/primebible-for-obs/issues)
+[![License](https://img.shields.io/github/license/primebible/primebible-for-obs)](https://github.com/primebible/primebible-for-obs/blob/main/LICENSE)
 
 </div>
 
 **Professional Bible Overlay System for Live Streaming**
 
-[![Version](https://img.shields.io/badge/version-2.2-blue)](https://github.com/primebible/primebible-obs)
+[![Version](https://img.shields.io/badge/version-2.2-blue)](https://github.com/primebible/primebible-for-obs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 [![OBS Studio](https://img.shields.io/badge/OBS%20Studio-28%2B-blueviolet)](https://obsproject.com/)
@@ -26,6 +26,8 @@
 </div>
 
 ---
+
+> **AI usage disclosure:** Most of this project's code was written with the assistance of an AI tool (Anthropic's Claude). This includes the Node.js server, the client-side JavaScript for the overlay, control panel, mobile remote, and stage display, as well as much of the documentation. AI involvement is also reflected in the commit history, where several commits are co-authored by Claude. The maintainers have manually tested the application in OBS Studio prior to release, and automated smoke tests (`npm test`) cover the pages, core API endpoints, and the WebSocket contract. The project is free, non-commercial, and open source under the MIT license.
 
 ## 📖 Table of Contents
 
@@ -117,15 +119,15 @@ All animations respect the viewer's `prefers-reduced-motion` setting.
 
 ```bash
 # Clone and start in one command
-git clone https://github.com/primebible/primebible-obs.git && cd primebible-obs && npm install && npm start
+git clone https://github.com/primebible/primebible-for-obs.git && cd primebible-for-obs && npm install && npm start
 ```
 
 ### Option 2: Step-by-Step
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/primebible/primebible-obs.git
-cd primebible-obs
+git clone https://github.com/primebible/primebible-for-obs.git
+cd primebible-for-obs
 
 # 2. Install dependencies
 npm install
@@ -193,15 +195,15 @@ Once started, open your browser (default port is **4456**, set in `config.json`)
 #### Method 1: Git Clone (Recommended)
 
 ```bash
-git clone https://github.com/primebible/primebible-obs.git
-cd primebible-obs
+git clone https://github.com/primebible/primebible-for-obs.git
+cd primebible-for-obs
 npm install
 npm start
 ```
 
 #### Method 2: Download ZIP
 
-1. Download the [latest release](https://github.com/primebible/primebible-obs/releases)
+1. Download the [latest release](https://github.com/primebible/primebible-for-obs/releases)
 2. Extract the ZIP file
 3. Open terminal in the extracted folder
 4. Run `npm install && npm start`
@@ -209,8 +211,8 @@ npm start
 #### Method 3: Docker
 
 ```bash
-docker build -t primebible-obs .
-docker run -d -p 4456:4456 -v ./data:/app/data --name primebible-obs primebible-obs
+docker build -t primebible-for-obs .
+docker run -d -p 4456:4456 -v ./data:/app/data --name primebible-for-obs primebible-for-obs
 ```
 
 ---
@@ -531,7 +533,7 @@ Clients identify themselves via the `?role=` query parameter on the WebSocket UR
 ### Project Structure
 
 ```
-primebible-obs/
+primebible-for-obs/
 ├── server.js                  # Main Node.js server
 ├── config.json                # Configuration file
 ├── package.json               # Dependencies
@@ -607,10 +609,10 @@ See [DIGITAL_OCEAN_DEPLOYMENT.md](DIGITAL_OCEAN_DEPLOYMENT.md) for the complete 
 
 ```bash
 # Build Docker image
-docker build -t primebible-obs .
+docker build -t primebible-for-obs .
 
 # Run container (persist history/favorites/plans via the data volume)
-docker run -d -p 4456:4456 -v ./data:/app/data --name primebible-obs primebible-obs
+docker run -d -p 4456:4456 -v ./data:/app/data --name primebible-for-obs primebible-for-obs
 ```
 
 ### Production Checklist
@@ -672,8 +674,8 @@ Visit `http://localhost:4456/api/health` to see server status, uptime, and live 
 
 We love contributions! Here's how you can help:
 
-- 🐛 **Report bugs**: Open an [issue](https://github.com/primebible/primebible-obs/issues)
-- 💡 **Suggest features**: Start a [discussion](https://github.com/primebible/primebible-obs/discussions)
+- 🐛 **Report bugs**: Open an [issue](https://github.com/primebible/primebible-for-obs/issues)
+- 💡 **Suggest features**: Start a [discussion](https://github.com/primebible/primebible-for-obs/discussions)
 - 📝 **Improve docs**: Submit a PR for README updates
 - 🎨 **Add themes**: Create new overlay themes (see [CONTRIBUTING.md](CONTRIBUTING.md))
 - 🌐 **Translations**: Help translate the interface
@@ -701,14 +703,14 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 ### Getting Help
 
 - 📚 **Documentation**: [QUICKSTART.md](QUICKSTART.md)
-- 💬 **Community**: [GitHub Discussions](https://github.com/primebible/primebible-obs/discussions)
-- 🐛 **Issues**: [Bug Tracker](https://github.com/primebible/primebible-obs/issues)
+- 💬 **Community**: [GitHub Discussions](https://github.com/primebible/primebible-for-obs/discussions)
+- 🐛 **Issues**: [Bug Tracker](https://github.com/primebible/primebible-for-obs/issues)
 - 📧 **Email**: support@primebible.com
 - 🌐 **Website**: [primebible.com](https://primebible.com)
 
 ### Sponsorship
 
-PrimeBible OBS is 100% free and open source. If this project has blessed your ministry, consider supporting:
+PrimeBible for OBS is 100% free and open source. If this project has blessed your ministry, consider supporting:
 
 - ⭐ Star this repository
 - 💬 Share with your church/community
@@ -761,7 +763,7 @@ PrimeBible OBS is 100% free and open source. If this project has blessed your mi
 
 **Bringing Scripture to Life in Your Streams**
 
-[Website](https://primebible.com) • [GitHub](https://github.com/primebible/primebible-obs) • [Documentation](QUICKSTART.md) • [Issues](https://github.com/primebible/primebible-obs/issues)
+[Website](https://primebible.com) • [GitHub](https://github.com/primebible/primebible-for-obs) • [Documentation](QUICKSTART.md) • [Issues](https://github.com/primebible/primebible-for-obs/issues)
 
 © 2025 PrimeBible. Released under the MIT License.
 
