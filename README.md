@@ -27,7 +27,7 @@
 
 ---
 
-> **AI usage disclosure:** Most of this project's code was written with the assistance of an AI tool (Anthropic's Claude). This includes the Node.js server, the client-side JavaScript for the overlay, control panel, mobile remote, and stage display, as well as much of the documentation. AI involvement is also reflected in the commit history, where several commits are co-authored by Claude. The maintainers have manually tested the application in OBS Studio prior to release, and automated smoke tests (`npm test`) cover the pages, core API endpoints, and the WebSocket contract. The project is free, non-commercial, and open source under the MIT license.
+> **AI usage disclosure:** Much of this project's code was written with the assistance of an AI tool (Anthropic's Claude); originally it was written manually but it's been improved by AI. This includes the Node.js server, the client-side JavaScript for the overlay, control panel, mobile remote, and stage display, as well as much of the documentation. AI involvement is also reflected in the commit history, where several commits are co-authored by Claude. The maintainers have manually tested the application in OBS Studio prior to release, and automated smoke tests (`npm test`) cover the pages, core API endpoints, and the WebSocket contract. The project is free, non-commercial, and open source under the MIT license.
 
 ## 📖 Table of Contents
 
